@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1.7
+# Multi-stage Dockerfile for Python services (dynamo_operator, model_registry, sla_monitor).
+# Usage: docker build -t taas-dynamo-operator python/dynamo_operator
+
+ARG PYTHON_VERSION=3.11
+ARG DEBIAN_VERSION=slim-bookworm
+
+# ─── Stage 1: Build/install deps ─────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-${DEBIAN_VERSION} AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install uv for fast dependency resolution
+RUN pip install uv
+
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r requirements.txt
+
+COPY . .
+
+# ─── Stage 2: Runtime ────────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-${DEBIAN_VERSION} AS runtime
+
+LABEL org.opencontainers.image.source="https://github.com/taas-platform/taas"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && \
+    groupadd -g 1001 taas && \
+    useradd -u 1001 -g taas -m -s /bin/bash taas
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /app /app
+
+USER taas
+
+EXPOSE 8000 9090
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

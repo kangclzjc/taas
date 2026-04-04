@@ -1,0 +1,31 @@
+apiVersion: v2
+name: taas
+description: Token as a Service — Multi-tenant model inference platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - ai
+  - inference
+  - llm
+  - multi-tenant
+  - nvidia-dynamo
+
+home: https://github.com/taas-platform/taas
+sources:
+  - https://github.com/taas-platform/taas
+
+maintainers:
+  - name: TaaS Platform Team
+    email: platform@taas.io
+
+dependencies:
+  - name: postgresql
+    version: "15.5.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.6.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

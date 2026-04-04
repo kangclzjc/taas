@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package taas.v1;
+
+option go_package = "github.com/taas-platform/taas/proto/gen/go/taas/v1";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Auth Service ─────────────────────────────────────────────────────────────
+
+service AuthService {
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc GetUserInfo(GetUserInfoRequest) returns (UserInfo);
+}
+
+message ValidateTokenRequest {
+  string token = 1;
+  string required_scope = 2;
+}
+
+message ValidateTokenResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string org_id = 3;
+  string role = 4;
+  repeated string scopes = 5;
+  string error_code = 6;
+}
+
+message GetUserInfoRequest {
+  string user_id = 1;
+}
+
+message UserInfo {
+  string id = 1;
+  string org_id = 2;
+  string email = 3;
+  string name = 4;
+  string role = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// ─── Token Manager Service ───────────────────────────────────────────────────
+
+service TokenManagerService {
+  rpc ValidateAPIToken(ValidateAPITokenRequest) returns (ValidateAPITokenResponse);
+  rpc InvalidateAPIToken(InvalidateAPITokenRequest) returns (InvalidateAPITokenResponse);
+  rpc RecordUsage(RecordUsageRequest) returns (RecordUsageResponse);
+}
+
+message ValidateAPITokenRequest {
+  string raw_token = 1;
+  string model_id = 2;
+}
+
+message ValidateAPITokenResponse {
+  bool valid = 1;
+  string token_id = 2;
+  string user_id = 3;
+  string org_id = 4;
+  string sla_tier = 5;
+  int32 rate_limit_rpm = 6;
+  int32 rate_limit_tpm = 7;
+  string deployment_id = 8;
+  string error_code = 9;
+}
+
+message InvalidateAPITokenRequest {
+  string token_id = 1;
+  string raw_token = 2;
+}
+
+message InvalidateAPITokenResponse {
+  bool success = 1;
+}
+
+message RecordUsageRequest {
+  string token_id = 1;
+  string model_id = 2;
+  string deployment_id = 3;
+  string org_id = 4;
+  string request_id = 5;
+  int32 prompt_tokens = 6;
+  int32 completion_tokens = 7;
+  int32 latency_ms = 8;
+  int32 ttft_ms = 9;
+  string status = 10;
+  string error_code = 11;
+}
+
+message RecordUsageResponse {
+  bool success = 1;
+}
+
+// ─── NATS Event Schemas (JSON) ───────────────────────────────────────────────
+// These are documented here for reference; actual serialization uses JSON.
+
+// Subject: model.deploy.requested
+// Subject: model.deploy.completed
+// Subject: model.deploy.failed
+// Subject: model.validate.{model_id}
+// Subject: usage.recorded
+// Subject: sla.violation.{deployment_id}
+// Subject: quota.exceeded.{org_id}

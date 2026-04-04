@@ -1,0 +1,132 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: dynamoworkers.dynamo.nvidia.com
+spec:
+  group: dynamo.nvidia.com
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [modelUri, framework, resources]
+              properties:
+                modelUri:
+                  type: string
+                  description: S3/GCS URI to model artifacts
+                framework:
+                  type: string
+                  enum: [sglang, vllm, tensorrt-llm]
+                replicas:
+                  type: object
+                  properties:
+                    min:
+                      type: integer
+                      default: 1
+                    max:
+                      type: integer
+                      default: 4
+                    target:
+                      type: integer
+                resources:
+                  type: object
+                  properties:
+                    gpuType:
+                      type: string
+                      description: "GPU type e.g. nvidia.com/gpu=A100"
+                    gpuCount:
+                      type: integer
+                      default: 1
+                    memoryGb:
+                      type: integer
+                serving:
+                  type: object
+                  properties:
+                    maxBatchSize:
+                      type: integer
+                      default: 8
+                    maxSequenceLength:
+                      type: integer
+                      default: 4096
+                    tensorParallelSize:
+                      type: integer
+                      default: 1
+                sla:
+                  type: object
+                  properties:
+                    tier:
+                      type: string
+                      enum: [standard, professional, enterprise]
+                      default: standard
+                    p99TargetMs:
+                      type: integer
+                    priorityWeight:
+                      type: integer
+                      default: 10
+                tenantId:
+                  type: string
+                  description: TaaS tenant/org ID for isolation
+                taasDeploymentId:
+                  type: string
+                  description: TaaS deployment UUID for status sync
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Deploying, Running, Scaling, Failed, Terminating]
+                replicas:
+                  type: integer
+                readyReplicas:
+                  type: integer
+                endpointUrl:
+                  type: string
+                lastUpdated:
+                  type: string
+                  format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Model
+          type: string
+          jsonPath: .spec.modelUri
+        - name: Framework
+          type: string
+          jsonPath: .spec.framework
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Replicas
+          type: integer
+          jsonPath: .status.readyReplicas
+        - name: Endpoint
+          type: string
+          jsonPath: .status.endpointUrl
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: dynamoworkers
+    singular: dynamoworker
+    kind: DynamoWorker
+    shortNames:
+      - dw

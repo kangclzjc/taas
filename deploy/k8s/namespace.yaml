@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taas
+  labels:
+    app.kubernetes.io/part-of: taas
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taas-dynamo
+  labels:
+    app.kubernetes.io/part-of: taas
+    # Dynamo workers need elevated permissions for GPU access
+    pod-security.kubernetes.io/enforce: privileged

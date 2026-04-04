@@ -1,0 +1,100 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-gateway
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "gateway" "root" .) | nindent 4 }}
+spec:
+  {{- if not .Values.gateway.autoscaling.enabled }}
+  replicas: {{ .Values.gateway.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-gateway
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.gateway.service.metricsPort | quote }}
+        prometheus.io/path: /metrics
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "gateway" "root" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: gateway
+          image: {{ include "taas.image" (dict "repo" .Values.gateway.image.repository "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.gateway.service.metricsPort }}
+              protocol: TCP
+          env:
+            - name: TAAS_ENV
+              value: {{ .Release.Namespace }}
+            - name: AUTH_SERVICE_URL
+              value: "http://{{ include "taas.fullname" . }}-auth:{{ .Values.auth.service.port }}"
+            - name: TOKEN_MANAGER_URL
+              value: "http://{{ include "taas.fullname" . }}-token-manager:{{ .Values.tokenManager.service.port }}"
+            - name: BILLING_SERVICE_URL
+              value: "http://{{ include "taas.fullname" . }}-billing:{{ .Values.billing.service.port }}"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taas-redis-secret
+                  key: redis-url
+            - name: OTLP_ENDPOINT
+              value: {{ .Values.observability.otlpEndpoint }}
+            - name: JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: jwt-signing-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: {{ include "taas.name" . }}-gateway
+                topologyKey: kubernetes.io/hostname
+{{- end }}

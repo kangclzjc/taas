@@ -1,0 +1,87 @@
+{{- if .Values.gateway.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-gateway
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "gateway" "root" .) | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  ports:
+    - port: {{ .Values.gateway.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.gateway.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-gateway
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- if .Values.auth.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-auth
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "auth" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.auth.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.auth.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-auth
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- if .Values.tokenManager.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-token-manager
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "token-manager" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.tokenManager.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-token-manager
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- if .Values.billing.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-billing
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "billing" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.billing.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-billing
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

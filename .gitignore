@@ -1,0 +1,51 @@
+# Binaries
+bin/
+*.exe
+*.out
+
+# Go
+*.test
+coverage.out
+coverage.html
+vendor/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+web/dist/
+web/.env.local
+
+# Environment and secrets — NEVER commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+**/secrets.yaml
+**/secret.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+deploy/helm/taas/charts/
+
+# Test artifacts
+test/load/results/
+
+# Temp
+tmp/

@@ -1,0 +1,229 @@
+# Default values for TaaS Helm chart.
+# Override with values-dev.yaml, values-staging.yaml, values-prod.yaml
+
+global:
+  imageRegistry: ghcr.io/taas-platform
+  imagePullSecrets: []
+  # imagePullSecrets:
+  #   - name: taas-registry-secret
+  storageClass: ""
+
+image:
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# ─── API Gateway ─────────────────────────────────────────────────────────────
+gateway:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: taas-gateway
+  service:
+    type: ClusterIP
+    port: 8080
+    metricsPort: 9090
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/rate-limit: "1000"
+    hosts:
+      - host: api.taas.io
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: taas-tls
+        hosts:
+          - api.taas.io
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# ─── Auth Service ─────────────────────────────────────────────────────────────
+auth:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: taas-auth
+  service:
+    port: 8081
+    metricsPort: 9091
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    jwtExpirySeconds: 3600
+    refreshTokenExpiryDays: 30
+    bcryptCost: 12
+
+# ─── Token Manager ────────────────────────────────────────────────────────────
+tokenManager:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: taas-token-manager
+  service:
+    port: 8082
+    metricsPort: 9092
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── Billing Service ─────────────────────────────────────────────────────────
+billing:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: taas-billing
+  service:
+    port: 8083
+    metricsPort: 9093
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ─── Dynamo Operator (Python) ─────────────────────────────────────────────────
+dynamoOperator:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: taas-dynamo-operator
+  serviceAccount:
+    create: true
+    name: taas-dynamo-operator
+  rbac:
+    create: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── Model Registry (Python) ─────────────────────────────────────────────────
+modelRegistry:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: taas-model-registry
+  service:
+    port: 8084
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  storage:
+    type: s3  # s3 or local
+    bucket: taas-models
+    region: us-east-1
+
+# ─── SLA Monitor (Python) ────────────────────────────────────────────────────
+slaMonitor:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: taas-sla-monitor
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── PostgreSQL (Bitnami subchart) ───────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    database: taas
+    username: taas
+    existingSecret: taas-db-secret
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  readReplicas:
+    replicaCount: 1
+
+# ─── Redis (Bitnami subchart) ────────────────────────────────────────────────
+redis:
+  enabled: true
+  architecture: replication
+  auth:
+    enabled: true
+    existingSecret: taas-redis-secret
+    existingSecretPasswordKey: redis-password
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+  replica:
+    replicaCount: 1
+
+# ─── External NATS ───────────────────────────────────────────────────────────
+nats:
+  url: "nats://taas-nats:4222"
+  credentialsSecret: taas-nats-secret
+
+# ─── Observability ───────────────────────────────────────────────────────────
+observability:
+  otlpEndpoint: "http://jaeger-collector:4317"
+  prometheusEnabled: true
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    interval: 30s
+
+# ─── Secrets (externally managed) ───────────────────────────────────────────
+secrets:
+  # Set these via --set or values override, never commit real values
+  jwtSigningKey: ""
+  dbPassword: ""
+  redisPassword: ""
+  natsCredentials: ""
+
+# ─── Network Policies ────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ─── Pod Disruption Budgets ──────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

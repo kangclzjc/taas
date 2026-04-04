@@ -1,0 +1,47 @@
+# Development environment overrides
+image:
+  tag: "dev"
+  pullPolicy: Always
+
+gateway:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: api.taas.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+auth:
+  replicaCount: 1
+
+tokenManager:
+  replicaCount: 1
+
+billing:
+  replicaCount: 1
+
+postgresql:
+  primary:
+    persistence:
+      size: 5Gi
+
+redis:
+  architecture: standalone
+  master:
+    persistence:
+      size: 1Gi
+
+networkPolicy:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+observability:
+  otlpEndpoint: "http://jaeger-collector.monitoring:4317"
