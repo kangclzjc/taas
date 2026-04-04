@@ -81,6 +81,46 @@ func TestCheckTPM_UnderLimit(t *testing.T) {
 	}
 }
 
+func TestCheckRPM_RejectionDoesNotAddEntry(t *testing.T) {
+	limiter, mr := setupTestLimiter(t)
+	defer mr.Close()
+
+	ctx := context.Background()
+	limit := 3
+
+	// Fill up to the limit
+	for i := 0; i < limit; i++ {
+		allowed, _, err := limiter.CheckRPM(ctx, "token-atomic", limit)
+		if err != nil {
+			t.Fatalf("iteration %d: %v", i, err)
+		}
+		if !allowed {
+			t.Fatalf("iteration %d: expected allowed", i)
+		}
+	}
+
+	// Reject several requests
+	for i := 0; i < 5; i++ {
+		allowed, _, err := limiter.CheckRPM(ctx, "token-atomic", limit)
+		if err != nil {
+			t.Fatalf("reject iteration %d: %v", i, err)
+		}
+		if allowed {
+			t.Errorf("reject iteration %d: expected rejected", i)
+		}
+	}
+
+	// Verify the sorted set only has `limit` entries (rejected requests should NOT be added)
+	key := "ratelimit:rpm:token-atomic"
+	count, err := limiter.redis.ZCard(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("zcard: %v", err)
+	}
+	if int(count) != limit {
+		t.Errorf("expected %d entries in sorted set, got %d (rejected requests leaked)", limit, count)
+	}
+}
+
 func TestCheckTPM_OverLimit(t *testing.T) {
 	limiter, mr := setupTestLimiter(t)
 	defer mr.Close()

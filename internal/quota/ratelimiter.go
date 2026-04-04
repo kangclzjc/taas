@@ -8,6 +8,33 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// slidingWindowLuaScript atomically checks and increments a sliding window rate limiter.
+// Returns {1, remaining} on allow, {0, 0} on reject.
+const slidingWindowLuaScript = `
+local key = KEYS[1]
+local window_start = ARGV[1]
+local now = ARGV[2]
+local limit = tonumber(ARGV[3])
+
+-- Remove expired entries
+redis.call('ZREMRANGEBYSCORE', key, '0', window_start)
+
+-- Count current entries
+local count = redis.call('ZCARD', key)
+
+if count >= limit then
+    return {0, 0}
+end
+
+-- Add current request
+redis.call('ZADD', key, now, now)
+redis.call('EXPIRE', key, math.ceil(tonumber(ARGV[4])))
+
+return {1, limit - count - 1}
+`
+
+var slidingWindowScript = redis.NewScript(slidingWindowLuaScript)
+
 // RateLimiter implements a sliding window rate limiter using Redis sorted sets.
 type RateLimiter struct {
 	redis *redis.Client
@@ -30,42 +57,28 @@ func (r *RateLimiter) CheckTPM(ctx context.Context, tokenID string, tokensUsed, 
 	return r.checkTokenWindow(ctx, key, tokensUsed, limitTPM, time.Minute)
 }
 
-// checkSlidingWindow implements a sliding window counter using a Redis sorted set.
-// Each request is stored as a member with score = unix timestamp in nanoseconds.
+// checkSlidingWindow implements a sliding window counter using a Redis sorted set
+// with an atomic Lua script. Each request is stored as a member with score = unix
+// timestamp in nanoseconds.
 func (r *RateLimiter) checkSlidingWindow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, error) {
 	now := time.Now()
 	windowStart := now.Add(-window)
+	expireSeconds := window.Seconds() * 2
 
-	pipe := r.redis.Pipeline()
-
-	// Remove expired entries
-	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
-
-	// Count current entries
-	countCmd := pipe.ZCard(ctx, key)
-
-	// Add current request
-	pipe.ZAdd(ctx, key, redis.Z{
-		Score:  float64(now.UnixNano()),
-		Member: fmt.Sprintf("%d", now.UnixNano()),
-	})
-
-	// Set expiry on the key
-	pipe.Expire(ctx, key, window*2)
-
-	if _, err := pipe.Exec(ctx); err != nil {
+	result, err := slidingWindowScript.Run(ctx, r.redis,
+		[]string{key},
+		fmt.Sprintf("%d", windowStart.UnixNano()),
+		fmt.Sprintf("%d", now.UnixNano()),
+		limit,
+		fmt.Sprintf("%f", expireSeconds),
+	).Int64Slice()
+	if err != nil {
 		return false, 0, fmt.Errorf("rate limit check: %w", err)
 	}
 
-	current := int(countCmd.Val())
-	if current >= limit {
-		// Remove the entry we just added (rejected request)
-		r.redis.ZRemRangeByScore(ctx, key, fmt.Sprintf("%d", now.UnixNano()), fmt.Sprintf("%d", now.UnixNano())) //nolint:errcheck
-		return false, 0, nil
-	}
-
-	remaining := limit - current - 1
-	return true, remaining, nil
+	allowed := result[0] == 1
+	remaining := int(result[1])
+	return allowed, remaining, nil
 }
 
 // checkTokenWindow uses a simple INCRBY + EXPIRE for token-based limits.

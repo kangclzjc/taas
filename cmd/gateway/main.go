@@ -24,6 +24,7 @@ import (
 	"github.com/taas-platform/taas/internal/monitoring"
 	"github.com/taas-platform/taas/internal/proxy"
 	"github.com/taas-platform/taas/internal/quota"
+	"github.com/taas-platform/taas/internal/telemetry"
 	"github.com/taas-platform/taas/internal/token"
 	"github.com/taas-platform/taas/pkg/config"
 	"github.com/taas-platform/taas/pkg/middleware"
@@ -40,6 +41,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// ── OpenTelemetry Tracing ──────────────────────────────────
+	tp, err := telemetry.InitTracer(ctx, "taas-gateway", cfg.OTLPEndpoint)
+	if err != nil {
+		logger.Warn("failed to init tracer", zap.Error(err))
+	}
+	if tp != nil {
+		defer func() {
+			if shutdownErr := tp.Shutdown(context.Background()); shutdownErr != nil {
+				logger.Error("tracer shutdown error", zap.Error(shutdownErr))
+			}
+		}()
+	}
 
 	// ── Database ────────────────────────────────────────────────
 	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
@@ -148,6 +162,7 @@ func main() {
 	jwtAuth := router.Group("")
 	jwtAuth.Use(auth.JWTMiddleware(jwtSvc, blocklist))
 	{
+		authHandler.RegisterProtectedRoutes(jwtAuth.Group("/auth"))
 		tokenHandler.RegisterRoutes(jwtAuth.Group("/tokens"))
 		modelHandler.RegisterRoutes(jwtAuth.Group("/models"))
 		billingHandler.RegisterRoutes(jwtAuth.Group("/usage"))

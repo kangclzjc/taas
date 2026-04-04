@@ -243,6 +243,24 @@ func (h *Handler) ShareModel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "model shared"})
 }
 
+// ListDeployments returns all deployments for a model.
+func (h *Handler) ListDeployments(c *gin.Context) {
+	modelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid model id"))
+		return
+	}
+
+	deployments, err := h.svc.repo.ListDeployments(c.Request.Context(), modelID)
+	if err != nil {
+		h.logger.Error("listing deployments", zap.Error(err))
+		middleware.ErrorResponse(c, taasErrors.Internal("failed to list deployments"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"deployments": deployments})
+}
+
 // RegisterRoutes sets up model routes on the given router group.
 func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("", h.CreateModel)
@@ -251,4 +269,5 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.DELETE("/:id", h.DeleteModel)
 	rg.POST("/:id/deploy", h.DeployModel)
 	rg.POST("/:id/share", h.ShareModel)
+	rg.GET("/:id/deployments", h.ListDeployments)
 }

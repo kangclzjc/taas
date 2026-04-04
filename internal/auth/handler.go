@@ -301,10 +301,33 @@ func (h *Handler) logAudit(c *gin.Context, event audit.Event) {
 	h.audit.Log(c.Request.Context(), event)
 }
 
+// GetMe returns the authenticated user's profile.
+func (h *Handler) GetMe(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, err := uuid.Parse(userID.(string))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid user id"))
+		return
+	}
+
+	user, err := h.repo.GetUserByID(c.Request.Context(), uid)
+	if err != nil || user == nil {
+		middleware.ErrorResponse(c, taasErrors.NotFound("user"))
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
 // RegisterRoutes sets up auth routes on the given router group.
 func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/register", h.Register)
 	rg.POST("/login", h.Login)
 	rg.POST("/refresh", h.Refresh)
 	rg.POST("/logout", h.Logout)
+}
+
+// RegisterProtectedRoutes sets up auth routes that require JWT authentication.
+func (h *Handler) RegisterProtectedRoutes(rg *gin.RouterGroup) {
+	rg.GET("/me", h.GetMe)
 }

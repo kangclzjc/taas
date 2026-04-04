@@ -143,9 +143,19 @@ func (h *Handler) ByToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"usage": results})
 }
 
+// Timeseries returns usage data points over time.
+// Stub implementation — returns empty data for now.
+func (h *Handler) Timeseries(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"granularity": c.DefaultQuery("granularity", "day"),
+		"data_points": []any{},
+	})
+}
+
 // RegisterRoutes sets up usage/billing routes on the given router group.
 func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/summary", h.Summary)
 	rg.GET("/by-model", h.ByModel)
 	rg.GET("/by-token", h.ByToken)
+	rg.GET("/timeseries", h.Timeseries)
 }
