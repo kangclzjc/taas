@@ -11,7 +11,8 @@ import (
 
 // JWTMiddleware validates the Authorization: Bearer <jwt> header
 // and sets user context keys (user_id, org_id, email, role) on the gin context.
-func JWTMiddleware(jwtSvc *JWTService) gin.HandlerFunc {
+// If a blocklist is provided, revoked tokens are rejected.
+func JWTMiddleware(jwtSvc *JWTService, blocklist *Blocklist) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
@@ -33,6 +34,20 @@ func JWTMiddleware(jwtSvc *JWTService) gin.HandlerFunc {
 		if claims.TokenType != "access" {
 			middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid token type"))
 			return
+		}
+
+		// Check if token has been revoked
+		if blocklist != nil && claims.ID != "" {
+			blocked, err := blocklist.IsBlocked(c.Request.Context(), claims.ID)
+			if err != nil {
+				// Log error but fail closed: reject the request if we can't verify
+				middleware.ErrorResponse(c, taasErrors.Internal("failed to verify token status"))
+				return
+			}
+			if blocked {
+				middleware.ErrorResponse(c, taasErrors.Unauthorized("token has been revoked"))
+				return
+			}
 		}
 
 		c.Set("user_id", claims.UserID)

@@ -16,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
+	"github.com/taas-platform/taas/internal/audit"
 	"github.com/taas-platform/taas/internal/auth"
 	"github.com/taas-platform/taas/internal/billing"
 	dynamoClient "github.com/taas-platform/taas/internal/dynamo"
@@ -78,8 +79,17 @@ func main() {
 
 	jwtSvc := auth.NewJWTService(cfg.JWTSigningKey, cfg.JWTExpirySeconds, cfg.RefreshTokenExpiryDays)
 
+	// Security: JWT blocklist for real token revocation
+	blocklist := auth.NewBlocklist(rdb)
+
+	// Security: Login rate limiting (5 attempts, 15min window, 30min lockout)
+	loginRateLimiter := auth.NewLoginRateLimiter(rdb, 5, 15*time.Minute, 30*time.Minute)
+
+	// Security: Audit logger
+	auditLogger := audit.New(logger, dbPool)
+
 	authRepo := auth.NewRepository(dbPool)
-	authHandler := auth.NewHandler(authRepo, jwtSvc, logger)
+	authHandler := auth.NewHandler(authRepo, jwtSvc, logger, blocklist, loginRateLimiter, auditLogger)
 
 	tokenRepo := token.NewRepository(dbPool)
 	tokenValidator := token.NewValidator(rdb, tokenRepo.LookupForValidation)
@@ -125,7 +135,7 @@ func main() {
 
 	// JWT-authenticated routes
 	jwtAuth := router.Group("")
-	jwtAuth.Use(auth.JWTMiddleware(jwtSvc))
+	jwtAuth.Use(auth.JWTMiddleware(jwtSvc, blocklist))
 	{
 		tokenHandler.RegisterRoutes(jwtAuth.Group("/tokens"))
 		modelHandler.RegisterRoutes(jwtAuth.Group("/models"))
@@ -134,7 +144,7 @@ func main() {
 
 	// Admin-only routes (require owner or admin role)
 	adminGroup := router.Group("/admin")
-	adminGroup.Use(auth.JWTMiddleware(jwtSvc))
+	adminGroup.Use(auth.JWTMiddleware(jwtSvc, blocklist))
 	adminGroup.Use(auth.RequireRole("owner", "admin"))
 	{
 		// Admin endpoints can be added here

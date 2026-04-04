@@ -2,24 +2,39 @@ package auth
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/taas-platform/taas/internal/audit"
 	taasErrors "github.com/taas-platform/taas/pkg/errors"
 	"github.com/taas-platform/taas/pkg/middleware"
 )
 
 // Handler holds auth HTTP handlers.
 type Handler struct {
-	repo   *Repository
-	jwt    *JWTService
-	logger *zap.Logger
+	repo        *Repository
+	jwt         *JWTService
+	logger      *zap.Logger
+	blocklist   *Blocklist
+	rateLimiter *LoginRateLimiter
+	audit       *audit.Logger
 }
 
-func NewHandler(repo *Repository, jwt *JWTService, logger *zap.Logger) *Handler {
-	return &Handler{repo: repo, jwt: jwt, logger: logger}
+// NewHandler creates a new auth handler. blocklist, rateLimiter, and auditLogger
+// can be nil to disable those features.
+func NewHandler(repo *Repository, jwt *JWTService, logger *zap.Logger, blocklist *Blocklist, rateLimiter *LoginRateLimiter, auditLogger *audit.Logger) *Handler {
+	return &Handler{
+		repo:        repo,
+		jwt:         jwt,
+		logger:      logger,
+		blocklist:   blocklist,
+		rateLimiter: rateLimiter,
+		audit:       auditLogger,
+	}
 }
 
 type registerRequest struct {
@@ -48,6 +63,12 @@ func (h *Handler) Register(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid request: "+err.Error()))
+		return
+	}
+
+	// Validate password complexity
+	if err := ValidatePasswordComplexity(req.Password); err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest(err.Error()))
 		return
 	}
 
@@ -100,6 +121,25 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	// Check rate limit before attempting auth
+	if h.rateLimiter != nil {
+		allowed, remaining, err := h.rateLimiter.Check(c.Request.Context(), req.Email)
+		if err != nil {
+			h.logger.Error("rate limiter check failed", zap.Error(err))
+			// Fail open: allow the request but log the error
+		} else if !allowed {
+			h.logAudit(c, audit.Event{
+				Action:  "login",
+				Status:  "denied",
+				Details: map[string]string{"email": req.Email, "reason": "rate_limited"},
+			})
+			middleware.ErrorResponse(c, taasErrors.New(taasErrors.CodeTooManyRequests, "too many login attempts, please try again later", http.StatusTooManyRequests))
+			return
+		} else {
+			_ = remaining // available for rate limit headers if desired
+		}
+	}
+
 	user, err := h.repo.GetUserByEmail(c.Request.Context(), req.Email)
 	if err != nil {
 		h.logger.Error("looking up user", zap.Error(err))
@@ -107,12 +147,24 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	if user == nil || !CheckPassword(user.PasswordHash, req.Password) {
+		h.logAudit(c, audit.Event{
+			Action:  "login",
+			Status:  "failed",
+			Details: map[string]string{"email": req.Email, "reason": "invalid_credentials"},
+		})
 		middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid email or password"))
 		return
 	}
 	if !user.IsActive {
 		middleware.ErrorResponse(c, taasErrors.Forbidden("account is deactivated"))
 		return
+	}
+
+	// Reset rate limiter on successful login
+	if h.rateLimiter != nil {
+		if err := h.rateLimiter.Reset(c.Request.Context(), req.Email); err != nil {
+			h.logger.Error("failed to reset rate limiter", zap.Error(err))
+		}
 	}
 
 	accessToken, err := h.jwt.IssueAccessToken(user.ID.String(), user.OrgID.String(), user.Email, user.Role, []string{"*"})
@@ -128,6 +180,13 @@ func (h *Handler) Login(c *gin.Context) {
 		middleware.ErrorResponse(c, taasErrors.Internal("failed to issue token"))
 		return
 	}
+
+	h.logAudit(c, audit.Event{
+		UserID: user.ID.String(),
+		OrgID:  user.OrgID.String(),
+		Action: "login",
+		Status: "success",
+	})
 
 	c.JSON(http.StatusOK, authResponse{
 		AccessToken:  accessToken,
@@ -187,10 +246,59 @@ func (h *Handler) Refresh(c *gin.Context) {
 	})
 }
 
-// Logout is a no-op for stateless JWT (client discards token).
-// In production, you'd add the token JTI to a blocklist.
+// Logout revokes the current token by adding its JTI to the blocklist.
 func (h *Handler) Logout(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+	// Extract the token from Authorization header
+	header := c.GetHeader("Authorization")
+	if header == "" {
+		middleware.ErrorResponse(c, taasErrors.Unauthorized("missing authorization header"))
+		return
+	}
+
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid authorization format"))
+		return
+	}
+
+	claims, err := h.jwt.ValidateToken(parts[1])
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid or expired token"))
+		return
+	}
+
+	if h.blocklist != nil && claims.ID != "" {
+		// Calculate remaining TTL
+		ttl := time.Until(claims.ExpiresAt.Time)
+		if err := h.blocklist.Add(c.Request.Context(), claims.ID, ttl); err != nil {
+			h.logger.Error("failed to add token to blocklist", zap.Error(err))
+			middleware.ErrorResponse(c, taasErrors.Internal("failed to revoke token"))
+			return
+		}
+	}
+
+	h.logAudit(c, audit.Event{
+		UserID: claims.UserID,
+		OrgID:  claims.OrgID,
+		Action: "logout",
+		Status: "success",
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "token revoked successfully"})
+}
+
+// logAudit is a helper that enriches the event with request info and logs it.
+func (h *Handler) logAudit(c *gin.Context, event audit.Event) {
+	if h.audit == nil {
+		return
+	}
+	if event.IP == "" {
+		event.IP = c.ClientIP()
+	}
+	if event.UserAgent == "" {
+		event.UserAgent = c.Request.UserAgent()
+	}
+	h.audit.Log(c.Request.Context(), event)
 }
 
 // RegisterRoutes sets up auth routes on the given router group.
