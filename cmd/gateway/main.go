@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -56,11 +57,21 @@ func main() {
 	}
 
 	// ── Database ────────────────────────────────────────────────
-	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		logger.Fatal("failed to parse database config", zap.Error(err))
+	}
+	poolConfig.MaxConns = int32(cfg.DBMaxOpenConns)
+	poolConfig.MinConns = int32(cfg.DBMaxIdleConns)
+
+	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		logger.Fatal("failed to connect to database", zap.Error(err))
 	}
 	defer dbPool.Close()
+
+	// Register DB pool metrics with Prometheus
+	prometheus.MustRegister(monitoring.NewDBPoolCollector(dbPool, "taas"))
 
 	// ── Redis ──────────────────────────────────────────────────
 	rdbOpts, err := redis.ParseURL(cfg.RedisURL)
