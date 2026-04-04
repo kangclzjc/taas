@@ -23,6 +23,7 @@ import (
 	dynamoClient "github.com/taas-platform/taas/internal/dynamo"
 	"github.com/taas-platform/taas/internal/model"
 	"github.com/taas-platform/taas/internal/monitoring"
+	"github.com/taas-platform/taas/internal/org"
 	"github.com/taas-platform/taas/internal/proxy"
 	"github.com/taas-platform/taas/internal/quota"
 	"github.com/taas-platform/taas/internal/telemetry"
@@ -86,10 +87,13 @@ func main() {
 
 	// ── NATS JetStream ─────────────────────────────────────────
 	var usagePublisher *billing.Publisher
+	var nc *nats.Conn
 	if cfg.NATSUrl != "" {
-		nc, natsErr := nats.Connect(cfg.NATSUrl)
+		var natsErr error
+		nc, natsErr = nats.Connect(cfg.NATSUrl)
 		if natsErr != nil {
 			logger.Warn("failed to connect to nats, billing disabled", zap.Error(natsErr))
+			nc = nil
 		} else {
 			defer nc.Close()
 			js, jsErr := nc.JetStream()
@@ -144,10 +148,15 @@ func main() {
 
 	billingHandler := billing.NewHandler(dbPool, logger)
 
+	// ── Organization ───────────────────────────────────────────
+	orgRepo := org.NewRepository(dbPool)
+	orgHandler := org.NewHandler(orgRepo, authRepo, logger)
+
 	// ── Router ─────────────────────────────────────────────────
 	router := gin.New()
 	router.Use(
 		middleware.SecurityHeaders(),
+		middleware.RequestLogger(logger),
 		middleware.Logger(logger),
 		middleware.Recovery(logger),
 		middleware.RequestID(),
@@ -157,11 +166,41 @@ func main() {
 	// Public endpoints
 	router.GET("/health", healthHandler)
 	router.GET("/health/ready", func(c *gin.Context) {
+		checks := make(map[string]string)
+		allHealthy := true
+
+		// DB check
 		if pingErr := dbPool.Ping(c.Request.Context()); pingErr != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready", "error": "database"})
-			return
+			checks["database"] = "unhealthy: " + pingErr.Error()
+			allHealthy = false
+		} else {
+			checks["database"] = "healthy"
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+
+		// Redis check
+		if pingErr := rdb.Ping(c.Request.Context()).Err(); pingErr != nil {
+			checks["redis"] = "unhealthy: " + pingErr.Error()
+			allHealthy = false
+		} else {
+			checks["redis"] = "healthy"
+		}
+
+		// NATS check (if configured)
+		if nc != nil {
+			if nc.IsConnected() {
+				checks["nats"] = "healthy"
+			} else {
+				checks["nats"] = "unhealthy: not connected"
+				allHealthy = false
+			}
+		}
+
+		status := http.StatusOK
+		if !allHealthy {
+			status = http.StatusServiceUnavailable
+		}
+
+		c.JSON(status, gin.H{"status": checks, "healthy": allHealthy})
 	})
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
@@ -177,6 +216,7 @@ func main() {
 		tokenHandler.RegisterRoutes(jwtAuth.Group("/tokens"))
 		modelHandler.RegisterRoutes(jwtAuth.Group("/models"))
 		billingHandler.RegisterRoutes(jwtAuth.Group("/usage"))
+		orgHandler.RegisterRoutes(jwtAuth.Group("/organizations"))
 	}
 
 	// Admin-only routes (require owner or admin role)
