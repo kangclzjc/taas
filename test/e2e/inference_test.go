@@ -85,7 +85,7 @@ func TestInferenceE2E(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, gatewayURL+"/v1/chat/completions", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", testAPIKey)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

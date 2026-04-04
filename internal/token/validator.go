@@ -95,9 +95,9 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*CachedToken
 }
 
 // Invalidate removes a token from the Redis cache (call on revocation/rotation).
-func (v *Validator) Invalidate(ctx context.Context, rawToken string) error {
-	hash := HashToken(rawToken)
-	return v.redis.Del(ctx, tokenCachePrefix+hash).Err()
+// tokenHash should be the SHA-256 hex hash already stored in the DB.
+func (v *Validator) Invalidate(ctx context.Context, tokenHash string) error {
+	return v.redis.Del(ctx, tokenCachePrefix+tokenHash).Err()
 }
 
 var (

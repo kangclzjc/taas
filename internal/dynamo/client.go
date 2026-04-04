@@ -93,7 +93,26 @@ func (c *Client) Forward(ctx context.Context, path string, body []byte, meta Ten
 			if _, wErr := w.Write(append(line, '\n')); wErr != nil {
 				return result, wErr
 			}
-			// Parse usage from final [DONE] chunk if present
+			// Parse usage from SSE data chunks.
+			// OpenAI-compatible APIs include usage in the final chunk before [DONE].
+			trimmed := bytes.TrimSpace(line)
+			if bytes.HasPrefix(trimmed, []byte("data: ")) {
+				payload := bytes.TrimPrefix(trimmed, []byte("data: "))
+				if !bytes.Equal(payload, []byte("[DONE]")) {
+					var chunk struct {
+						Usage *struct {
+							PromptTokens     int `json:"prompt_tokens"`
+							CompletionTokens int `json:"completion_tokens"`
+							TotalTokens      int `json:"total_tokens"`
+						} `json:"usage"`
+					}
+					if err := json.Unmarshal(payload, &chunk); err == nil && chunk.Usage != nil {
+						result.PromptTokens = chunk.Usage.PromptTokens
+						result.CompletionTokens = chunk.Usage.CompletionTokens
+						result.TotalTokens = chunk.Usage.TotalTokens
+					}
+				}
+			}
 		}
 		return result, scanner.Err()
 	}
