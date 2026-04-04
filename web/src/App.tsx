@@ -11,6 +11,7 @@ import ModelDetailPage from './pages/ModelDetailPage';
 import TokensPage from './pages/TokensPage';
 import UsagePage from './pages/UsagePage';
 import ProfilePage from './pages/ProfilePage';
+import OrganizationsPage from './pages/OrganizationsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +44,7 @@ export default function App() {
                 <Route path="/models/:id" element={<ModelDetailPage />} />
                 <Route path="/tokens" element={<TokensPage />} />
                 <Route path="/usage" element={<UsagePage />} />
+                <Route path="/organizations" element={<OrganizationsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -7,6 +7,7 @@ const navItems = [
   { to: '/models', icon: '🤖', label: 'Models' },
   { to: '/tokens', icon: '🔑', label: 'API Tokens' },
   { to: '/usage', icon: '📈', label: 'Usage' },
+  { to: '/organizations', icon: '🏢', label: 'Organizations' },
 ];
 
 export default function Layout() {

@@ -152,3 +152,49 @@ export const billing = {
   currentPeriod: () => request('/billing/current'),
   history: () => request('/billing/history'),
 };
+
+// ─── Organizations ────────────────────────────────────────────────────────
+
+export interface Organization {
+  id: string;
+  slug: string;
+  display_name: string;
+  sla_tier: string;
+  created_at: string;
+}
+
+export interface OrgMember {
+  user_id: string;
+  email?: string;
+  role: string;
+  joined_at: string;
+}
+
+export const organizations = {
+  list: () =>
+    request<{ organizations: Organization[] }>('/organizations'),
+  create: (data: { slug: string; display_name: string }) =>
+    request<Organization>('/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  get: (id: string) => request<Organization>(`/organizations/${id}`),
+  update: (id: string, data: { display_name: string }) =>
+    request<Organization>(`/organizations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  delete: (id: string) =>
+    request(`/organizations/${id}`, { method: 'DELETE' }),
+  listMembers: (id: string) =>
+    request<{ members: OrgMember[] }>(`/organizations/${id}/members`),
+  addMember: (id: string, data: { email: string; role: string }) =>
+    request<OrgMember>(`/organizations/${id}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  removeMember: (orgId: string, userId: string) =>
+    request(`/organizations/${orgId}/members/${userId}`, {
+      method: 'DELETE',
+    }),
+};
