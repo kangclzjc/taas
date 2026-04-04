@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"time"
@@ -47,9 +48,13 @@ func (h *Handler) Embeddings(c *gin.Context) {
 }
 
 func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
+	// Limit request body to 10MB to prevent memory exhaustion
+	const maxBodySize = 10 << 20 // 10MB
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBodySize)
+
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		middleware.ErrorResponse(c, taasErrors.BadRequest("failed to read request body"))
+		middleware.ErrorResponse(c, taasErrors.BadRequest("failed to read request body (max 10MB)"))
 		return
 	}
 
@@ -58,6 +63,12 @@ func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
 		middleware.ErrorResponse(c, taasErrors.Unauthorized("missing token context"))
 		return
 	}
+
+	// Extract model ID from request body for cost calculation and metrics
+	var reqBody struct {
+		Model string `json:"model"`
+	}
+	json.Unmarshal(body, &reqBody) //nolint:errcheck — best effort
 
 	requestID, _ := c.Get("request_id")
 	rid, _ := requestID.(string)
@@ -71,31 +82,49 @@ func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
 	}
 
 	start := time.Now()
+
+	// For streaming, write directly to the client; for non-streaming, buffer
 	var buf bytes.Buffer
-	result, err := h.dynamo.Forward(c.Request.Context(), path, body, meta, &buf)
+	var writer io.Writer = &buf
+
+	// Check if request asks for streaming
+	var streamCheck struct {
+		Stream bool `json:"stream"`
+	}
+	json.Unmarshal(body, &streamCheck) //nolint:errcheck
+
+	if streamCheck.Stream {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Status(http.StatusOK)
+		writer = c.Writer
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			defer flusher.Flush()
+		}
+	}
+
+	result, err := h.dynamo.Forward(c.Request.Context(), path, body, meta, writer)
 	latency := time.Since(start)
 
 	if err != nil {
 		h.logger.Error("dynamo forward error", zap.Error(err), zap.String("path", path))
-		h.publishUsage(c, tokenInfo, rid, path, 0, 0, latency, "error")
-		h.recordMetrics(tokenInfo, "", latency, 0, 0, "error")
+		h.publishUsage(c, tokenInfo, rid, reqBody.Model, 0, 0, latency, "error")
+		h.recordMetrics(tokenInfo, reqBody.Model, latency, 0, 0, "error")
 		middleware.ErrorResponse(c, taasErrors.New(taasErrors.CodeDynamoError, "inference backend error", http.StatusBadGateway).WithCause(err))
 		return
 	}
 
 	// Publish usage event asynchronously
-	h.publishUsage(c, tokenInfo, rid, path, result.PromptTokens, result.CompletionTokens, latency, "success")
-	h.recordMetrics(tokenInfo, "", latency, result.PromptTokens, result.CompletionTokens, "success")
+	h.publishUsage(c, tokenInfo, rid, reqBody.Model, result.PromptTokens, result.CompletionTokens, latency, "success")
+	h.recordMetrics(tokenInfo, reqBody.Model, latency, result.PromptTokens, result.CompletionTokens, "success")
 
-	if result.Streamed {
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-	} else {
+	// For non-streaming responses, write the buffered body
+	if !streamCheck.Stream {
 		c.Header("Content-Type", "application/json")
+		c.Status(result.HTTPStatus)
+		c.Writer.Write(buf.Bytes()) //nolint:errcheck
 	}
-	c.Status(result.HTTPStatus)
-	c.Writer.Write(buf.Bytes()) //nolint:errcheck
 }
 
 // recordMetrics updates Prometheus counters/histograms for inference requests.

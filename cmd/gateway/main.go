@@ -132,6 +132,14 @@ func main() {
 		billingHandler.RegisterRoutes(jwtAuth.Group("/usage"))
 	}
 
+	// Admin-only routes (require owner or admin role)
+	adminGroup := router.Group("/admin")
+	adminGroup.Use(auth.JWTMiddleware(jwtSvc))
+	adminGroup.Use(auth.RequireRole("owner", "admin"))
+	{
+		// Admin endpoints can be added here
+	}
+
 	// API Key authenticated routes (inference)
 	v1 := router.Group("/v1")
 	v1.Use(proxy.APIKeyAuth(tokenValidator, logger))

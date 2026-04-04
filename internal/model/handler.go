@@ -62,8 +62,16 @@ func (h *Handler) CreateModel(c *gin.Context) {
 
 	orgID, _ := c.Get("org_id")
 	userID, _ := c.Get("user_id")
-	oid := uuid.MustParse(orgID.(string))
-	uid := uuid.MustParse(userID.(string))
+	oid, err := uuid.Parse(orgID.(string))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid org id"))
+		return
+	}
+	uid, err := uuid.Parse(userID.(string))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid user id"))
+		return
+	}
 
 	m := &Model{
 		ID:             uuid.New(),
@@ -95,7 +103,11 @@ func (h *Handler) CreateModel(c *gin.Context) {
 // ListModels returns models visible to the authenticated org.
 func (h *Handler) ListModels(c *gin.Context) {
 	orgID, _ := c.Get("org_id")
-	oid := uuid.MustParse(orgID.(string))
+	oid, err := uuid.Parse(orgID.(string))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid org id"))
+		return
+	}
 
 	filter := ListModelsFilter{OrgID: &oid, Limit: 50}
 	models, total, err := h.svc.repo.ListModels(c.Request.Context(), filter)
@@ -162,7 +174,11 @@ func (h *Handler) DeployModel(c *gin.Context) {
 	}
 
 	orgID, _ := c.Get("org_id")
-	oid := uuid.MustParse(orgID.(string))
+	oid, err := uuid.Parse(orgID.(string))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid org id"))
+		return
+	}
 
 	if req.SLATier == "" {
 		req.SLATier = SLAStandard
@@ -208,7 +224,11 @@ func (h *Handler) ShareModel(c *gin.Context) {
 	}
 
 	orgID, _ := c.Get("org_id")
-	oid := uuid.MustParse(orgID.(string))
+	oid, err := uuid.Parse(orgID.(string))
+	if err != nil {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("invalid org id"))
+		return
+	}
 
 	if req.Permission == "" {
 		req.Permission = "read"

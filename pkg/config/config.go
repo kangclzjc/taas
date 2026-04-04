@@ -72,7 +72,10 @@ func Load(service string) (*Config, error) {
 	v.SetDefault("jwt_expiry_seconds", 3600)
 	v.SetDefault("refresh_token_expiry_days", 30)
 	v.SetDefault("log_level", "info")
-	v.SetDefault("cors_allowed_origins", []string{"*"})
+	v.SetDefault("cors_allowed_origins", []string{})
+
+	// Required in production
+	v.SetDefault("jwt_signing_key", "")
 
 	cfg := &Config{
 		Service:                service,
@@ -104,6 +107,18 @@ func Load(service string) (*Config, error) {
 func (c *Config) validate() error {
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port: %d", c.Port)
+	}
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("database_url is required")
+	}
+	if c.RedisURL == "" {
+		return fmt.Errorf("redis_url is required")
+	}
+	if c.JWTSigningKey == "" {
+		return fmt.Errorf("jwt_signing_key is required")
+	}
+	if len(c.JWTSigningKey) < 32 {
+		return fmt.Errorf("jwt_signing_key must be at least 32 characters")
 	}
 	return nil
 }

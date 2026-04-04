@@ -15,7 +15,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ../../migrations:/docker-entrypoint-initdb.d
+      - ../../migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taas"]
       interval: 5s
@@ -44,7 +44,7 @@ services:
   gateway:
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile.go
+      dockerfile: deploy/docker/Dockerfile
     container_name: taas-gateway
     ports:
       - "8080:8080"
