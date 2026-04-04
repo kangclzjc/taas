@@ -59,6 +59,9 @@ export const auth = {
 
   me: () => request<UserProfile>('/auth/me'),
 
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    request('/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
+
   refresh: (refreshToken: string) =>
     request<LoginResponse>('/auth/refresh', {
       method: 'POST',
@@ -83,12 +86,24 @@ export interface DeploymentConfig {
   max_batch_size: number; max_sequence_length: number;
 }
 
+export interface Deployment {
+  id: string;
+  model_id: string;
+  status: string;
+  replicas: number;
+  gpu_type: string;
+  endpoint_url: string | null;
+  created_at: string;
+}
+
 export const models = {
   list: (params?: { public?: boolean; framework?: string }) => {
     const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
     return request<{ items: Model[]; total: number }>(`/models${qs}`);
   },
   get: (id: string) => request<Model>(`/models/${id}`),
+  getDeployments: (modelId: string) =>
+    request<{ deployments: Deployment[] }>(`/models/${modelId}/deployments`),
   deploy: (id: string, config: DeploymentConfig) =>
     request(`/models/${id}/deploy`, { method: 'POST', body: JSON.stringify(config) }),
   undeploy: (id: string) =>
@@ -129,6 +144,10 @@ export const billing = {
   usage: (params?: { start_date?: string; end_date?: string; model_id?: string }) => {
     const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
     return request<UsageSummary>(`/usage${qs}`);
+  },
+  timeseries: (params?: { start_date?: string; end_date?: string; granularity?: string }) => {
+    const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+    return request<any>(`/usage/timeseries${qs}`);
   },
   currentPeriod: () => request('/billing/current'),
   history: () => request('/billing/history'),

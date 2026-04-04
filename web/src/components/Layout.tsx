@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { auth } from '../api/client';
 
@@ -57,7 +57,9 @@ export default function Layout() {
           <div className="header-user">
             {user && (
               <>
-                <span className="header-user-name">{user.name || user.email}</span>
+                <Link to="/profile" style={{ color: 'inherit', textDecoration: 'none' }}>
+                  <span className="header-user-name" style={{ cursor: 'pointer' }}>{user.name || user.email}</span>
+                </Link>
                 <span className="badge badge-info">{user.role}</span>
               </>
             )}

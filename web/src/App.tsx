@@ -7,8 +7,10 @@ import { ToastProvider } from './components/Toast';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ModelsPage from './pages/ModelsPage';
+import ModelDetailPage from './pages/ModelDetailPage';
 import TokensPage from './pages/TokensPage';
 import UsagePage from './pages/UsagePage';
+import ProfilePage from './pages/ProfilePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,8 +40,10 @@ export default function App() {
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/models" element={<ModelsPage />} />
+                <Route path="/models/:id" element={<ModelDetailPage />} />
                 <Route path="/tokens" element={<TokensPage />} />
                 <Route path="/usage" element={<UsagePage />} />
+                <Route path="/profile" element={<ProfilePage />} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { models, type DeploymentConfig } from '../api/client';
 import { SkeletonTable } from '../components/LoadingSkeleton';
 import EmptyState from '../components/EmptyState';
@@ -105,7 +106,11 @@ export default function ModelsPage() {
                 {data.items.map((model) => (
                   <tr key={model.id}>
                     <td>
-                      <div style={{ fontWeight: 500 }}>{model.name}</div>
+                      <div style={{ fontWeight: 500 }}>
+                        <Link to={`/models/${model.id}`} style={{ color: 'var(--primary)', textDecoration: 'none' }}>
+                          {model.name}
+                        </Link>
+                      </div>
                       {model.description && (
                         <div className="text-sm text-muted truncate" style={{ maxWidth: 240 }}>
                           {model.description}

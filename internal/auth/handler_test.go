@@ -2,10 +2,12 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,163 +19,125 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// testHandler wraps auth handler logic with in-memory storage for testing
-// without requiring a PostgreSQL database.
-type testHandler struct {
-	store  map[string]*User // email -> user
-	byID   map[uuid.UUID]*User
-	jwt    *JWTService
-	logger *zap.Logger
+// ---------------------------------------------------------------------------
+// Mock UserRepository
+// ---------------------------------------------------------------------------
+
+type mockUserRepo struct {
+	users map[string]*User     // email -> user
+	byID  map[uuid.UUID]*User  // id -> user
 }
 
-func newTestHandler() *testHandler {
-	return &testHandler{
-		store:  make(map[string]*User),
-		byID:   make(map[uuid.UUID]*User),
-		jwt:    NewJWTService("test-handler-secret-key-1234", 3600, 7),
-		logger: zap.NewNop(),
+func newMockUserRepo() *mockUserRepo {
+	return &mockUserRepo{
+		users: make(map[string]*User),
+		byID:  make(map[uuid.UUID]*User),
 	}
 }
 
-func (h *testHandler) Register(c *gin.Context) {
-	var req registerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": "invalid request: " + err.Error()})
-		return
+func (m *mockUserRepo) CreateUser(_ context.Context, email, password, role string, orgID uuid.UUID) (*User, error) {
+	if _, exists := m.users[email]; exists {
+		// The real repo would return a DB constraint error, but the handler
+		// checks GetUserByEmail first. Return a new user for the normal path.
+		return nil, nil
 	}
-
-	if _, exists := h.store[req.Email]; exists {
-		c.JSON(http.StatusConflict, gin.H{"code": "CONFLICT", "message": "email already registered"})
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.MinCost)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "hashing failed"})
-		return
-	}
-
-	user := &User{
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	u := &User{
 		ID:           uuid.New(),
-		OrgID:        uuid.New(),
-		Email:        req.Email,
+		OrgID:        orgID,
+		Email:        email,
 		PasswordHash: string(hash),
-		Role:         "owner",
+		Role:         role,
 		IsActive:     true,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
-	h.store[req.Email] = user
-	h.byID[user.ID] = user
-
-	accessToken, _ := h.jwt.IssueAccessToken(user.ID.String(), user.OrgID.String(), user.Email, user.Role, []string{"*"})
-	refreshToken, _ := h.jwt.IssueRefreshToken(user.ID.String(), user.OrgID.String())
-
-	c.JSON(http.StatusCreated, authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-	})
+	m.users[email] = u
+	m.byID[u.ID] = u
+	return u, nil
 }
 
-func (h *testHandler) Login(c *gin.Context) {
-	var req loginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": "invalid request: " + err.Error()})
-		return
+func (m *mockUserRepo) GetUserByEmail(_ context.Context, email string) (*User, error) {
+	u, ok := m.users[email]
+	if !ok {
+		return nil, nil
 	}
-
-	user, exists := h.store[req.Email]
-	if !exists || !CheckPassword(user.PasswordHash, req.Password) {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "invalid email or password"})
-		return
-	}
-	if !user.IsActive {
-		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "account is deactivated"})
-		return
-	}
-
-	accessToken, _ := h.jwt.IssueAccessToken(user.ID.String(), user.OrgID.String(), user.Email, user.Role, []string{"*"})
-	refreshToken, _ := h.jwt.IssueRefreshToken(user.ID.String(), user.OrgID.String())
-
-	c.JSON(http.StatusOK, authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-	})
+	return u, nil
 }
 
-func (h *testHandler) Refresh(c *gin.Context) {
-	var req refreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": "invalid request: " + err.Error()})
-		return
+func (m *mockUserRepo) GetUserByID(_ context.Context, id uuid.UUID) (*User, error) {
+	u, ok := m.byID[id]
+	if !ok {
+		return nil, nil
 	}
-
-	claims, err := h.jwt.ValidateToken(req.RefreshToken)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "invalid refresh token"})
-		return
-	}
-	if claims.TokenType != "refresh" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "token is not a refresh token"})
-		return
-	}
-
-	userID, err := uuid.Parse(claims.UserID)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "invalid user id"})
-		return
-	}
-
-	user, exists := h.byID[userID]
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "user not found"})
-		return
-	}
-
-	accessToken, _ := h.jwt.IssueAccessToken(user.ID.String(), user.OrgID.String(), user.Email, user.Role, []string{"*"})
-	refreshToken, _ := h.jwt.IssueRefreshToken(user.ID.String(), user.OrgID.String())
-
-	c.JSON(http.StatusOK, authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-	})
+	return u, nil
 }
 
-func (h *testHandler) setupRouter() *gin.Engine {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const testJWTKey = "test-handler-secret-key-1234567890-long-enough"
+
+func newTestHandlerReal() (*Handler, *mockUserRepo) {
+	repo := newMockUserRepo()
+	jwt := NewJWTService(testJWTKey, 3600, 7)
+	logger := zap.NewNop()
+	h := NewHandler(repo, jwt, logger, nil, nil, nil)
+	return h, repo
+}
+
+func setupRouterReal(h *Handler) *gin.Engine {
 	r := gin.New()
 	auth := r.Group("/auth")
-	auth.POST("/register", h.Register)
-	auth.POST("/login", h.Login)
-	auth.POST("/refresh", h.Refresh)
+	h.RegisterRoutes(auth)
+	// Protected routes need a middleware to set user_id/org_id.
+	// We'll use the real JWTMiddleware for integration-like tests.
+	protected := r.Group("/auth", JWTMiddleware(h.jwt, nil))
+	h.RegisterProtectedRoutes(protected)
 	return r
 }
 
-func TestRegister_Success(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+// registerUser is a helper that registers a user and returns the response body.
+func registerUser(t *testing.T, router *gin.Engine, email, password string) authResponse {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("registerUser: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("registerUser: unmarshal: %v", err)
+	}
+	return resp
+}
+
+// ---------------------------------------------------------------------------
+// Tests using real Handler with mock UserRepository
+// ---------------------------------------------------------------------------
+
+func TestHandler_Register_Success(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
 
 	body, _ := json.Marshal(map[string]string{
-		"email":    "test@example.com",
-		"password": "securepassword123",
+		"email":    "new@example.com",
+		"password": "Str0ng!Pass99",
 	})
-
 	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-
 	var resp authResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse response: %v", err)
-	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
 
 	if resp.AccessToken == "" {
 		t.Error("expected non-empty access_token")
@@ -182,262 +146,282 @@ func TestRegister_Success(t *testing.T) {
 		t.Error("expected non-empty refresh_token")
 	}
 	if resp.TokenType != "Bearer" {
-		t.Errorf("expected token_type 'Bearer', got '%s'", resp.TokenType)
+		t.Errorf("expected Bearer, got %s", resp.TokenType)
 	}
 	if resp.ExpiresIn != 3600 {
-		t.Errorf("expected expires_in 3600, got %d", resp.ExpiresIn)
+		t.Errorf("expected 3600, got %d", resp.ExpiresIn)
 	}
 }
 
-func TestRegister_DuplicateEmail(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Register_DuplicateEmail(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	registerUser(t, r, "dup@example.com", "Str0ng!Pass99")
 
 	body, _ := json.Marshal(map[string]string{
-		"email":    "duplicate@example.com",
-		"password": "securepassword123",
+		"email":    "dup@example.com",
+		"password": "Str0ng!Pass99",
 	})
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	// First registration
-	req1 := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
-	req1.Header.Set("Content-Type", "application/json")
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, req1)
-
-	if w1.Code != http.StatusCreated {
-		t.Fatalf("first register failed: status %d", w1.Code)
-	}
-
-	// Second registration with same email
-	body2, _ := json.Marshal(map[string]string{
-		"email":    "duplicate@example.com",
-		"password": "anotherpassword123",
-	})
-	req2 := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body2))
-	req2.Header.Set("Content-Type", "application/json")
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, req2)
-
-	if w2.Code != http.StatusConflict {
-		t.Errorf("expected status 409 for duplicate email, got %d: %s", w2.Code, w2.Body.String())
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestRegister_InvalidEmail(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Register_InvalidEmail(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
 
 	body, _ := json.Marshal(map[string]string{
 		"email":    "not-an-email",
-		"password": "securepassword123",
+		"password": "Str0ng!Pass99",
 	})
-
 	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid email, got %d", w.Code)
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 
-func TestRegister_ShortPassword(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Register_WeakPassword(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	// Passes gin's min=8 binding but fails complexity (no special char, etc.)
+	body, _ := json.Marshal(map[string]string{
+		"email":    "user@example.com",
+		"password": "nouppercase1!",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for weak password, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_Login_Success(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	registerUser(t, r, "login@example.com", "Str0ng!Pass99")
 
 	body, _ := json.Marshal(map[string]string{
-		"email":    "test@example.com",
-		"password": "short",
+		"email":    "login@example.com",
+		"password": "Str0ng!Pass99",
 	})
-
-	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for short password, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-}
-
-func TestLogin_Success(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
-
-	// Register first
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    "login@example.com",
-		"password": "correctpassword1",
-	})
-	regReq := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(regBody))
-	regReq.Header.Set("Content-Type", "application/json")
-	regW := httptest.NewRecorder()
-	r.ServeHTTP(regW, regReq)
-
-	if regW.Code != http.StatusCreated {
-		t.Fatalf("registration failed: %d", regW.Code)
-	}
-
-	// Now login
-	loginBody, _ := json.Marshal(map[string]string{
-		"email":    "login@example.com",
-		"password": "correctpassword1",
-	})
-	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(loginBody))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginW := httptest.NewRecorder()
-	r.ServeHTTP(loginW, loginReq)
-
-	if loginW.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", loginW.Code, loginW.Body.String())
-	}
-
 	var resp authResponse
-	if err := json.Unmarshal(loginW.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse login response: %v", err)
-	}
-	if resp.AccessToken == "" {
-		t.Error("expected non-empty access_token")
-	}
-	if resp.RefreshToken == "" {
-		t.Error("expected non-empty refresh_token")
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.AccessToken == "" || resp.RefreshToken == "" {
+		t.Error("expected tokens in login response")
 	}
 }
 
-func TestLogin_WrongPassword(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Login_WrongPassword(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
 
-	// Register
-	regBody, _ := json.Marshal(map[string]string{
+	registerUser(t, r, "wrong@example.com", "Str0ng!Pass99")
+
+	body, _ := json.Marshal(map[string]string{
 		"email":    "wrong@example.com",
-		"password": "correctpassword1",
+		"password": "Wrong!Pass999",
 	})
-	regReq := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(regBody))
-	regReq.Header.Set("Content-Type", "application/json")
-	regW := httptest.NewRecorder()
-	r.ServeHTTP(regW, regReq)
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	// Login with wrong password
-	loginBody, _ := json.Marshal(map[string]string{
-		"email":    "wrong@example.com",
-		"password": "wrongpassword111",
-	})
-	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(loginBody))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginW := httptest.NewRecorder()
-	r.ServeHTTP(loginW, loginReq)
-
-	if loginW.Code != http.StatusUnauthorized {
-		t.Errorf("expected status 401 for wrong password, got %d: %s", loginW.Code, loginW.Body.String())
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestLogin_NonExistentUser(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Login_NonExistentUser(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
 
-	loginBody, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]string{
 		"email":    "nobody@example.com",
-		"password": "somepassword12",
+		"password": "Str0ng!Pass99",
 	})
-	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(loginBody))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginW := httptest.NewRecorder()
-	r.ServeHTTP(loginW, loginReq)
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	if loginW.Code != http.StatusUnauthorized {
-		t.Errorf("expected status 401, got %d", loginW.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
 
-func TestRefresh_Success(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Login_InactiveUser(t *testing.T) {
+	h, repo := newTestHandlerReal()
+	r := setupRouterReal(h)
 
-	// Register
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    "refresh@example.com",
-		"password": "securepassword1",
+	registerUser(t, r, "inactive@example.com", "Str0ng!Pass99")
+
+	// Deactivate the user directly in the mock
+	repo.users["inactive@example.com"].IsActive = false
+
+	body, _ := json.Marshal(map[string]string{
+		"email":    "inactive@example.com",
+		"password": "Str0ng!Pass99",
 	})
-	regReq := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(regBody))
-	regReq.Header.Set("Content-Type", "application/json")
-	regW := httptest.NewRecorder()
-	r.ServeHTTP(regW, regReq)
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	var regResp authResponse
-	json.Unmarshal(regW.Body.Bytes(), &regResp)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for inactive user, got %d: %s", w.Code, w.Body.String())
+	}
+}
 
-	// Use refresh token
-	refreshBody, _ := json.Marshal(map[string]string{
+func TestHandler_Refresh_Success(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	regResp := registerUser(t, r, "refresh@example.com", "Str0ng!Pass99")
+
+	body, _ := json.Marshal(map[string]string{
 		"refresh_token": regResp.RefreshToken,
 	})
-	refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(refreshBody))
-	refreshReq.Header.Set("Content-Type", "application/json")
-	refreshW := httptest.NewRecorder()
-	r.ServeHTTP(refreshW, refreshReq)
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	if refreshW.Code != http.StatusOK {
-		t.Fatalf("expected status 200 for refresh, got %d: %s", refreshW.Code, refreshW.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-
 	var resp authResponse
-	if err := json.Unmarshal(refreshW.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse refresh response: %v", err)
-	}
-	if resp.AccessToken == "" {
-		t.Error("expected new access_token")
-	}
-	if resp.RefreshToken == "" {
-		t.Error("expected new refresh_token")
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.AccessToken == "" || resp.RefreshToken == "" {
+		t.Error("expected new tokens from refresh")
 	}
 }
 
-func TestRefresh_WithAccessToken_ShouldFail(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Refresh_WithAccessToken_Fails(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
 
-	// Register
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    "refresh2@example.com",
-		"password": "securepassword1",
+	regResp := registerUser(t, r, "refresh2@example.com", "Str0ng!Pass99")
+
+	body, _ := json.Marshal(map[string]string{
+		"refresh_token": regResp.AccessToken, // wrong token type
 	})
-	regReq := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(regBody))
-	regReq.Header.Set("Content-Type", "application/json")
-	regW := httptest.NewRecorder()
-	r.ServeHTTP(regW, regReq)
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	var regResp authResponse
-	json.Unmarshal(regW.Body.Bytes(), &regResp)
-
-	// Try using access token as refresh token — should fail
-	refreshBody, _ := json.Marshal(map[string]string{
-		"refresh_token": regResp.AccessToken,
-	})
-	refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(refreshBody))
-	refreshReq.Header.Set("Content-Type", "application/json")
-	refreshW := httptest.NewRecorder()
-	r.ServeHTTP(refreshW, refreshReq)
-
-	if refreshW.Code != http.StatusUnauthorized {
-		t.Errorf("expected status 401 when using access token for refresh, got %d", refreshW.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 when using access token for refresh, got %d", w.Code)
 	}
 }
 
-func TestRefresh_InvalidToken(t *testing.T) {
-	h := newTestHandler()
-	r := h.setupRouter()
+func TestHandler_Refresh_InvalidToken(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
 
-	refreshBody, _ := json.Marshal(map[string]string{
-		"refresh_token": "this-is-not-a-valid-token",
+	body, _ := json.Marshal(map[string]string{
+		"refresh_token": "this-is-invalid",
 	})
-	refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(refreshBody))
-	refreshReq.Header.Set("Content-Type", "application/json")
-	refreshW := httptest.NewRecorder()
-	r.ServeHTTP(refreshW, refreshReq)
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-	if refreshW.Code != http.StatusUnauthorized {
-		t.Errorf("expected status 401, got %d", refreshW.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandler_GetMe(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	regResp := registerUser(t, r, "me@example.com", "Str0ng!Pass99")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+regResp.AccessToken)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var user User
+	if err := json.Unmarshal(w.Body.Bytes(), &user); err != nil {
+		t.Fatalf("unmarshal user: %v", err)
+	}
+	if user.Email != "me@example.com" {
+		t.Errorf("expected email me@example.com, got %s", user.Email)
+	}
+	if user.Role != "owner" {
+		t.Errorf("expected role owner, got %s", user.Role)
+	}
+}
+
+func TestHandler_GetMe_NoAuth(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandler_Logout(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	regResp := registerUser(t, r, "logout@example.com", "Str0ng!Pass99")
+
+	// Logout endpoint is registered on the non-protected group
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+regResp.AccessToken)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_Logout_NoAuth(t *testing.T) {
+	h, _ := newTestHandlerReal()
+	r := setupRouterReal(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
