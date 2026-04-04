@@ -1,4 +1,5 @@
-.PHONY: all build test lint fmt clean docker-build docker-push helm-lint deploy-dev
+.PHONY: all build test lint fmt clean docker-build docker-push helm-lint deploy-dev \
+	test-cover migrate-up migrate-down docker-up docker-down
 
 # Project settings
 MODULE      := github.com/taas-platform/taas
@@ -65,6 +66,10 @@ test: ## Run unit tests
 test-coverage: test ## Show test coverage
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
+
+test-cover: ## Run tests with coverage and open HTML report
+	go test -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out
 
 test-integration: ## Run integration tests (requires running dependencies)
 	go test -v -tags=integration ./test/...

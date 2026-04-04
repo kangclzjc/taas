@@ -1,21 +1,21 @@
-version: "3.9"
+version: '3.9'
 
-# Local development dependencies only — does NOT run TaaS services themselves.
-# Run: make dev-deps
+# Full local development environment with TaaS gateway and all dependencies.
+# Run: make docker-up
 
 services:
   postgres:
     image: postgres:16-alpine
     container_name: taas-postgres
     environment:
-      POSTGRES_USER: taas
-      POSTGRES_PASSWORD: taas_dev_secret
       POSTGRES_DB: taas
+      POSTGRES_USER: taas
+      POSTGRES_PASSWORD: taas
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+      - ../../migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taas"]
       interval: 5s
@@ -25,13 +25,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: taas-redis
-    command: redis-server --requirepass redis_dev_secret --save 60 1
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "redis_dev_secret", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -39,17 +36,32 @@ services:
   nats:
     image: nats:2.10-alpine
     container_name: taas-nats
-    command: ["-js", "-m", "8222", "--name", "taas-dev"]
+    command: ["-js"]
     ports:
-      - "4222:4222"   # Client
-      - "8222:8222"   # Monitoring HTTP
-    volumes:
-      - nats_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz | grep -q ok"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - "4222:4222"
+      - "8222:8222"
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.go
+    container_name: taas-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    environment:
+      TAAS_PORT: 8080
+      TAAS_DATABASE_URL: postgres://taas:taas@postgres:5432/taas?sslmode=disable
+      TAAS_REDIS_URL: redis://redis:6379
+      TAAS_NATS_URL: nats://nats:4222
+      TAAS_JWT_SIGNING_KEY: dev-secret-key-change-in-production
+      TAAS_DYNAMO_FRONTEND_URL: http://dynamo-mock:8090
 
   prometheus:
     image: prom/prometheus:v2.54.0
@@ -80,15 +92,13 @@ services:
     image: jaegertracing/all-in-one:1.60
     container_name: taas-jaeger
     ports:
-      - "16686:16686"   # UI
-      - "4317:4317"     # OTLP gRPC
-      - "4318:4318"     # OTLP HTTP
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 
 volumes:
-  postgres_data:
-  redis_data:
-  nats_data:
+  pgdata:
   prometheus_data:
   grafana_data:
