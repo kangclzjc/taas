@@ -16,7 +16,7 @@ import (
 
 // Handler holds auth HTTP handlers.
 type Handler struct {
-	repo        *Repository
+	repo        UserRepository
 	jwt         *JWTService
 	logger      *zap.Logger
 	blocklist   *Blocklist
@@ -26,7 +26,7 @@ type Handler struct {
 
 // NewHandler creates a new auth handler. blocklist, rateLimiter, and auditLogger
 // can be nil to disable those features.
-func NewHandler(repo *Repository, jwt *JWTService, logger *zap.Logger, blocklist *Blocklist, rateLimiter *LoginRateLimiter, auditLogger *audit.Logger) *Handler {
+func NewHandler(repo UserRepository, jwt *JWTService, logger *zap.Logger, blocklist *Blocklist, rateLimiter *LoginRateLimiter, auditLogger *audit.Logger) *Handler {
 	return &Handler{
 		repo:        repo,
 		jwt:         jwt,

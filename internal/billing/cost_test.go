@@ -4,8 +4,20 @@ import (
 	"testing"
 )
 
+func newTestCalculator() *CostCalculator {
+	return NewCostCalculator(PricingConfig{
+		Prices: map[string][2]float64{
+			"llama-3-8b":   {0.10, 0.20},
+			"llama-3-70b":  {0.50, 1.00},
+			"mistral-7b":   {0.10, 0.20},
+			"mixtral-8x7b": {0.40, 0.80},
+		},
+		DefaultPrice: [2]float64{0.50, 1.00},
+	})
+}
+
 func TestCostCalculator_KnownModel(t *testing.T) {
-	calc := NewCostCalculator()
+	calc := newTestCalculator()
 
 	// llama-3-8b: prompt $0.10/M, completion $0.20/M
 	cost := calc.Calculate("llama-3-8b", 1000, 500)
@@ -19,7 +31,7 @@ func TestCostCalculator_KnownModel(t *testing.T) {
 }
 
 func TestCostCalculator_UnknownModel(t *testing.T) {
-	calc := NewCostCalculator()
+	calc := newTestCalculator()
 
 	// Unknown model uses default: prompt $0.50/M, completion $1.00/M
 	cost := calc.Calculate("unknown-model", 1_000_000, 1_000_000)
@@ -31,7 +43,7 @@ func TestCostCalculator_UnknownModel(t *testing.T) {
 }
 
 func TestCostCalculator_ZeroTokens(t *testing.T) {
-	calc := NewCostCalculator()
+	calc := newTestCalculator()
 
 	cost := calc.Calculate("llama-3-8b", 0, 0)
 	if cost != 0 {
@@ -40,7 +52,7 @@ func TestCostCalculator_ZeroTokens(t *testing.T) {
 }
 
 func TestCostCalculator_LargeVolume(t *testing.T) {
-	calc := NewCostCalculator()
+	calc := newTestCalculator()
 
 	// 10M prompt + 5M completion for llama-3-70b ($0.50 + $1.00 per M)
 	cost := calc.Calculate("llama-3-70b", 10_000_000, 5_000_000)

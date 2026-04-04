@@ -25,7 +25,13 @@ func init() {
 // newTestHandler creates a proxy Handler wired to a mock Dynamo httptest server.
 func newTestHandler(dynamoURL string) *Handler {
 	dc := dynamo.NewClient(dynamoURL)
-	costCalc := billing.NewCostCalculator()
+	costCalc := billing.NewCostCalculator(billing.PricingConfig{
+		Prices: map[string][2]float64{
+			"llama-3-8b":  {0.10, 0.20},
+			"llama-3-70b": {0.50, 1.00},
+		},
+		DefaultPrice: [2]float64{0.50, 1.00},
+	})
 	logger := zap.NewNop()
 	// metrics and publisher are nil — handler checks for nil before using them
 	return NewHandler(dc, nil, costCalc, nil, logger)
@@ -34,7 +40,13 @@ func newTestHandler(dynamoURL string) *Handler {
 // newTestHandlerWithMetrics creates a proxy Handler with metrics enabled.
 func newTestHandlerWithMetrics(dynamoURL string) *Handler {
 	dc := dynamo.NewClient(dynamoURL)
-	costCalc := billing.NewCostCalculator()
+	costCalc := billing.NewCostCalculator(billing.PricingConfig{
+		Prices: map[string][2]float64{
+			"llama-3-8b":  {0.10, 0.20},
+			"llama-3-70b": {0.50, 1.00},
+		},
+		DefaultPrice: [2]float64{0.50, 1.00},
+	})
 	logger := zap.NewNop()
 	metrics := monitoring.NewMetrics("test_proxy")
 	return NewHandler(dc, nil, costCalc, metrics, logger)

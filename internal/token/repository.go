@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// TokenRepository defines the interface for token persistence operations.
+type TokenRepository interface {
+	Create(ctx context.Context, t *Token) error
+	GetByHash(ctx context.Context, hash string) (*Token, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*Token, error)
+	ListByOrg(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]*Token, error)
+	Revoke(ctx context.Context, id uuid.UUID) error
+	UpdateHash(ctx context.Context, id uuid.UUID, newHash, newPrefix string) error
+	LookupForValidation(ctx context.Context, hash string) (*CachedTokenInfo, error)
+}
+
 // Token represents an API token stored in the database.
 // The raw token value is never stored — only the SHA-256 hash.
 type Token struct {

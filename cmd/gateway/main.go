@@ -64,14 +64,16 @@ func main() {
 	if cfg.NATSUrl != "" {
 		nc, natsErr := nats.Connect(cfg.NATSUrl)
 		if natsErr != nil {
-			logger.Fatal("failed to connect to nats", zap.Error(natsErr))
+			logger.Warn("failed to connect to nats, billing disabled", zap.Error(natsErr))
+		} else {
+			defer nc.Close()
+			js, jsErr := nc.JetStream()
+			if jsErr != nil {
+				logger.Warn("failed to init jetstream, billing disabled", zap.Error(jsErr))
+			} else {
+				usagePublisher = billing.NewPublisher(js)
+			}
 		}
-		defer nc.Close()
-		js, jsErr := nc.JetStream()
-		if jsErr != nil {
-			logger.Fatal("failed to init jetstream", zap.Error(jsErr))
-		}
-		usagePublisher = billing.NewPublisher(js)
 	}
 
 	// ── Services ───────────────────────────────────────────────
@@ -103,7 +105,15 @@ func main() {
 
 	rateLimiter := quota.NewRateLimiter(rdb)
 
-	costCalc := billing.NewCostCalculator()
+	costCalc := billing.NewCostCalculator(billing.PricingConfig{
+		Prices: map[string][2]float64{
+			"llama-3-8b":   {0.10, 0.20},
+			"llama-3-70b":  {0.50, 1.00},
+			"mistral-7b":   {0.10, 0.20},
+			"mixtral-8x7b": {0.40, 0.80},
+		},
+		DefaultPrice: [2]float64{0.50, 1.00},
+	})
 	dc := dynamoClient.NewClient(cfg.DynamoFrontendURL)
 	proxyHandler := proxy.NewHandler(dc, usagePublisher, costCalc, metrics, logger)
 
@@ -112,6 +122,7 @@ func main() {
 	// ── Router ─────────────────────────────────────────────────
 	router := gin.New()
 	router.Use(
+		middleware.SecurityHeaders(),
 		middleware.Logger(logger),
 		middleware.Recovery(logger),
 		middleware.RequestID(),

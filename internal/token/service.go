@@ -22,12 +22,12 @@ const (
 
 // Service provides business logic for API token management.
 type Service struct {
-	repo      *Repository
+	repo      TokenRepository
 	validator *Validator
 	logger    *zap.Logger
 }
 
-func NewService(repo *Repository, validator *Validator, logger *zap.Logger) *Service {
+func NewService(repo TokenRepository, validator *Validator, logger *zap.Logger) *Service {
 	return &Service{repo: repo, validator: validator, logger: logger}
 }
 

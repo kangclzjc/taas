@@ -12,6 +12,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// UserRepository defines the interface for user persistence operations.
+type UserRepository interface {
+	CreateUser(ctx context.Context, email, password, role string, orgID uuid.UUID) (*User, error)
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (*User, error)
+}
+
 // User represents a registered TaaS user.
 type User struct {
 	ID           uuid.UUID `json:"id"`

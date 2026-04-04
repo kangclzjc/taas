@@ -60,6 +60,12 @@ func (p *Publisher) Publish(ctx context.Context, event UsageEvent) error {
 	return err
 }
 
+// PricingConfig holds model pricing configuration for the CostCalculator.
+type PricingConfig struct {
+	Prices       map[string][2]float64
+	DefaultPrice [2]float64
+}
+
 // CostCalculator computes inference cost given token counts and model pricing.
 type CostCalculator struct {
 	// pricePerMTokens maps model_id → (prompt_price, completion_price) per million tokens
@@ -68,16 +74,14 @@ type CostCalculator struct {
 	defaultPrice [2]float64
 }
 
-func NewCostCalculator() *CostCalculator {
+func NewCostCalculator(cfg PricingConfig) *CostCalculator {
+	prices := cfg.Prices
+	if prices == nil {
+		prices = make(map[string][2]float64)
+	}
 	return &CostCalculator{
-		prices: map[string][2]float64{
-			// Example pricing (USD per million tokens)
-			"llama-3-8b":   {0.10, 0.20},
-			"llama-3-70b":  {0.50, 1.00},
-			"mistral-7b":   {0.10, 0.20},
-			"mixtral-8x7b": {0.40, 0.80},
-		},
-		defaultPrice: [2]float64{0.50, 1.00},
+		prices:       prices,
+		defaultPrice: cfg.DefaultPrice,
 	}
 }
 
