@@ -131,6 +131,12 @@ db-migrate-up: ## Run database migrations
 db-migrate-down: ## Rollback last migration
 	migrate -path db/migrations -database "$(DATABASE_URL)" down 1
 
+migrate-up: ## Run migrations using TAAS_DATABASE_URL
+	migrate -path migrations -database $$TAAS_DATABASE_URL up
+
+migrate-down: ## Rollback migrations using TAAS_DATABASE_URL
+	migrate -path migrations -database $$TAAS_DATABASE_URL down
+
 db-seed: ## Seed development database
 	go run scripts/seed/main.go
 
@@ -141,6 +147,12 @@ dev-deps: ## Start local development dependencies (PostgreSQL, Redis, NATS)
 
 dev-deps-down: ## Stop local development dependencies
 	docker compose -f deploy/docker/docker-compose.dev.yaml down
+
+docker-up: ## Start full dev environment (all services)
+	docker compose -f deploy/docker/docker-compose.dev.yaml up -d
+
+docker-down: ## Stop dev environment and remove volumes
+	docker compose -f deploy/docker/docker-compose.dev.yaml down -v
 
 dev-gateway: build-gateway ## Run gateway locally
 	./bin/gateway --config configs/gateway.dev.yaml
