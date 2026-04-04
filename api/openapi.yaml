@@ -1,0 +1,2122 @@
+openapi: 3.0.3
+info:
+  title: TaaS API
+  description: |
+    Token as a Service — Multi-tenant model inference platform built on NVIDIA Dynamo.
+    Provides model deployment, API token management, OpenAI-compatible inference, usage tracking, and billing.
+  version: 1.0.0
+  contact:
+    name: TaaS Platform Team
+  license:
+    name: Apache 2.0
+
+servers:
+  - url: https://api.taas.example.com
+    description: Production
+  - url: https://api.staging.taas.example.com
+    description: Staging
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Authentication and authorization
+  - name: Users
+    description: User profile management
+  - name: Organizations
+    description: Organization and team management
+  - name: Models
+    description: Model registry and lifecycle
+  - name: Tokens
+    description: API token management
+  - name: Model Sharing
+    description: Share models between organizations
+  - name: Inference
+    description: OpenAI-compatible inference endpoints
+  - name: Usage
+    description: Usage analytics and reporting
+  - name: Billing
+    description: Invoices and billing management
+  - name: Admin
+    description: Platform administration
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  # ============================================================
+  # AUTH
+  # ============================================================
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      operationId: loginUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # USERS
+  # ============================================================
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Users]
+      summary: Update current user profile
+      operationId: updateCurrentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ============================================================
+  # ORGANIZATIONS
+  # ============================================================
+  /organizations:
+    get:
+      tags: [Organizations]
+      summary: List organizations the user belongs to
+      operationId: listOrganizations
+      responses:
+        '200':
+          description: Organization list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organizations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organization'
+    post:
+      tags: [Organizations]
+      summary: Create a new organization
+      operationId: createOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrgRequest'
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organizations/{orgId}:
+    parameters:
+      - $ref: '#/components/parameters/OrgId'
+    get:
+      tags: [Organizations]
+      summary: Get organization details
+      operationId: getOrganization
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Organizations]
+      summary: Update organization
+      operationId: updateOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrgRequest'
+      responses:
+        '200':
+          description: Organization updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Organizations]
+      summary: Delete organization
+      operationId: deleteOrganization
+      responses:
+        '204':
+          description: Organization deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /organizations/{orgId}/members:
+    parameters:
+      - $ref: '#/components/parameters/OrgId'
+    get:
+      tags: [Organizations]
+      summary: List organization members
+      operationId: listOrgMembers
+      responses:
+        '200':
+          description: Members list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrgMember'
+    post:
+      tags: [Organizations]
+      summary: Invite a member to the organization
+      operationId: inviteOrgMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteMemberRequest'
+      responses:
+        '201':
+          description: Member invited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgMember'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organizations/{orgId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/OrgId'
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Organizations]
+      summary: Update member role
+      operationId: updateOrgMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [owner, admin, member, viewer]
+      responses:
+        '200':
+          description: Member updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgMember'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags: [Organizations]
+      summary: Remove member from organization
+      operationId: removeOrgMember
+      responses:
+        '204':
+          description: Member removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================
+  # MODELS
+  # ============================================================
+  /models:
+    get:
+      tags: [Models]
+      summary: List models in the current organization
+      operationId: listModels
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [registered, validating, ready, archived]
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Model'
+                  next_page_token:
+                    type: string
+    post:
+      tags: [Models]
+      summary: Register a new model
+      operationId: createModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelRequest'
+      responses:
+        '201':
+          description: Model registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /models/{modelId}:
+    parameters:
+      - $ref: '#/components/parameters/ModelId'
+    get:
+      tags: [Models]
+      summary: Get model details
+      operationId: getModel
+      responses:
+        '200':
+          description: Model details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Models]
+      summary: Delete a model (must be undeployed)
+      operationId: deleteModel
+      responses:
+        '204':
+          description: Model deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Model is currently deployed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /models/{modelId}/deploy:
+    parameters:
+      - $ref: '#/components/parameters/ModelId'
+    post:
+      tags: [Models]
+      summary: Deploy a model for inference
+      operationId: deployModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeployModelRequest'
+      responses:
+        '202':
+          description: Deployment initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Model already deployed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /models/{modelId}/undeploy:
+    parameters:
+      - $ref: '#/components/parameters/ModelId'
+    post:
+      tags: [Models]
+      summary: Undeploy a model (drain and stop)
+      operationId: undeployModel
+      responses:
+        '202':
+          description: Undeployment initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Model not currently deployed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # TOKENS
+  # ============================================================
+  /tokens:
+    get:
+      tags: [Tokens]
+      summary: List API tokens
+      operationId: listTokens
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, rotated, revoked, expired]
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: Token list (keys are masked)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiToken'
+                  next_page_token:
+                    type: string
+    post:
+      tags: [Tokens]
+      summary: Create a new API token
+      operationId: createToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTokenRequest'
+      responses:
+        '201':
+          description: Token created (raw key returned ONCE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenWithSecret'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /tokens/{tokenId}:
+    parameters:
+      - $ref: '#/components/parameters/TokenId'
+    get:
+      tags: [Tokens]
+      summary: Get token details (key is masked)
+      operationId: getToken
+      responses:
+        '200':
+          description: Token details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiToken'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Tokens]
+      summary: Revoke a token
+      operationId: revokeToken
+      responses:
+        '204':
+          description: Token revoked
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tokens/{tokenId}/rotate:
+    parameters:
+      - $ref: '#/components/parameters/TokenId'
+    post:
+      tags: [Tokens]
+      summary: Rotate a token (issue new, grace period for old)
+      operationId: rotateToken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grace_period_hours:
+                  type: integer
+                  default: 24
+                  description: Hours the old token remains valid
+      responses:
+        '201':
+          description: New token issued (raw key returned ONCE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenWithSecret'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # MODEL SHARING
+  # ============================================================
+  /models/{modelId}/shares:
+    parameters:
+      - $ref: '#/components/parameters/ModelId'
+    get:
+      tags: [Model Sharing]
+      summary: List shares for a model
+      operationId: listModelShares
+      responses:
+        '200':
+          description: Share list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shares:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelShare'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Model Sharing]
+      summary: Share a model with another organization
+      operationId: shareModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareRequest'
+      responses:
+        '201':
+          description: Model shared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelShare'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /models/{modelId}/shares/{shareId}:
+    parameters:
+      - $ref: '#/components/parameters/ModelId'
+      - name: shareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Model Sharing]
+      summary: Revoke a model share
+      operationId: revokeModelShare
+      responses:
+        '204':
+          description: Share revoked
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # INFERENCE (OpenAI-compatible)
+  # ============================================================
+  /v1/chat/completions:
+    post:
+      tags: [Inference]
+      summary: Create chat completion (OpenAI-compatible)
+      operationId: createChatCompletion
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Chat completion response (or SSE stream if stream=true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream of ChatCompletionChunk objects
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Model not found or not deployed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Model temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/completions:
+    post:
+      tags: [Inference]
+      summary: Create text completion (OpenAI-compatible)
+      operationId: createCompletion
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompletionRequest'
+      responses:
+        '200':
+          description: Completion response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/embeddings:
+    post:
+      tags: [Inference]
+      summary: Create embeddings (OpenAI-compatible)
+      operationId: createEmbedding
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+      responses:
+        '200':
+          description: Embedding response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/models:
+    get:
+      tags: [Inference]
+      summary: List available models (OpenAI-compatible)
+      operationId: listAvailableModels
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpenAIModel'
+
+  # ============================================================
+  # USAGE
+  # ============================================================
+  /usage/summary:
+    get:
+      tags: [Usage]
+      summary: Get usage summary for current billing period
+      operationId: getUsageSummary
+      parameters:
+        - name: period_start
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: period_end
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummary'
+
+  /usage/by-model:
+    get:
+      tags: [Usage]
+      summary: Get usage broken down by model
+      operationId: getUsageByModel
+      parameters:
+        - name: period_start
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: period_end
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Usage by model
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelUsage'
+
+  /usage/by-token:
+    get:
+      tags: [Usage]
+      summary: Get usage broken down by API token
+      operationId: getUsageByToken
+      parameters:
+        - name: period_start
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: period_end
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Usage by token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TokenUsage'
+
+  /usage/timeseries:
+    get:
+      tags: [Usage]
+      summary: Get usage timeseries data
+      operationId: getUsageTimeseries
+      parameters:
+        - name: period_start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: period_end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: granularity
+          in: query
+          schema:
+            type: string
+            enum: [hour, day, week]
+            default: day
+        - name: model_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: token_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage timeseries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageTimeseries'
+
+  # ============================================================
+  # BILLING
+  # ============================================================
+  /billing/current:
+    get:
+      tags: [Billing]
+      summary: Get current billing period summary
+      operationId: getCurrentBilling
+      responses:
+        '200':
+          description: Current billing period
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPeriod'
+
+  /billing/invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      operationId: listInvoices
+      parameters:
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: Invoice list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+                  next_page_token:
+                    type: string
+
+  /billing/invoices/{invoiceId}:
+    parameters:
+      - name: invoiceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Billing]
+      summary: Get invoice details with line items
+      operationId: getInvoice
+      responses:
+        '200':
+          description: Invoice details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # ADMIN
+  # ============================================================
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users (admin only)
+      operationId: adminListUsers
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, suspended, deleted]
+        - name: search
+          in: query
+          schema:
+            type: string
+            description: Search by email or display name
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminUser'
+                  next_page_token:
+                    type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{userId}/quota:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Admin]
+      summary: Update user/org quota (admin only)
+      operationId: adminUpdateQuota
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQuotaRequest'
+      responses:
+        '200':
+          description: Quota updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaInfo'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/system/health:
+    get:
+      tags: [Admin]
+      summary: Get system health overview (admin only)
+      operationId: adminGetSystemHealth
+      responses:
+        '200':
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealth'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  # ============================================================
+  # SECURITY SCHEMES
+  # ============================================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token from /auth/login
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: "TaaS API key (format: taas_v1_...)"
+
+  # ============================================================
+  # PARAMETERS
+  # ============================================================
+  parameters:
+    OrgId:
+      name: orgId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ModelId:
+      name: modelId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TokenId:
+      name: tokenId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    PageToken:
+      name: page_token
+      in: query
+      schema:
+        type: string
+        description: Opaque pagination cursor
+
+  # ============================================================
+  # RESPONSES
+  # ============================================================
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Request limit per minute
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in current window
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # SCHEMAS
+  # ============================================================
+  schemas:
+    # --- Error ---
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: not_found
+        message:
+          type: string
+          example: Resource not found
+        details:
+          type: object
+          additionalProperties: true
+
+    ValidationErrorResponse:
+      type: object
+      required: [code, message, errors]
+      properties:
+        code:
+          type: string
+          example: validation_error
+        message:
+          type: string
+          example: Request validation failed
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    # --- Auth ---
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        org_name:
+          type: string
+          description: Optional organization name (auto-created if provided)
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Seconds until access token expires
+          example: 900
+        user:
+          $ref: '#/components/schemas/User'
+
+    # --- User ---
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+        email_verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        organizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrgMembership'
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        avatar_url:
+          type: string
+          nullable: true
+
+    OrgMembership:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        org_slug:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, member, viewer]
+
+    # --- Organization ---
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        display_name:
+          type: string
+        sla_tier:
+          type: string
+          enum: [free, standard, enterprise]
+        member_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CreateOrgRequest:
+      type: object
+      required: [slug, display_name]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+
+    UpdateOrgRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+
+    OrgMember:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, member, viewer]
+        joined_at:
+          type: string
+          format: date-time
+
+    InviteMemberRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, member, viewer]
+
+    # --- Model ---
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        framework:
+          type: string
+          enum: [sglang, vllm, tensorrt_llm]
+        source_uri:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [registered, validating, ready, archived]
+        parameters:
+          type: object
+          additionalProperties: true
+        deployment:
+          $ref: '#/components/schemas/Deployment'
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    CreateModelRequest:
+      type: object
+      required: [name, framework, source_uri]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        framework:
+          type: string
+          enum: [sglang, vllm, tensorrt_llm]
+        source_uri:
+          type: string
+          description: "Model source (s3://, hf://, gcs://)"
+        version:
+          type: string
+          default: v1
+        parameters:
+          type: object
+          additionalProperties: true
+          description: Model-specific configuration (dtype, context_length, etc.)
+
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        model_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, provisioning, healthy, degraded, draining, stopped, failed]
+        gpu_count:
+          type: integer
+        gpu_type:
+          type: string
+        replicas:
+          type: object
+          properties:
+            prefill:
+              type: integer
+            decode:
+              type: integer
+        endpoint_url:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    DeployModelRequest:
+      type: object
+      properties:
+        gpu_count:
+          type: integer
+          minimum: 1
+          default: 1
+        gpu_type:
+          type: string
+          enum: [A100_40GB, A100_80GB, H100]
+          default: A100_80GB
+        max_batch_size:
+          type: integer
+          default: 64
+        max_sequence_length:
+          type: integer
+          default: 4096
+        prefill_replicas:
+          type: integer
+          minimum: 1
+          default: 1
+        decode_replicas:
+          type: integer
+          minimum: 1
+          default: 1
+
+    # --- Token ---
+    ApiToken:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: "First 12 characters of the token for identification"
+        status:
+          type: string
+          enum: [active, rotated, revoked, expired]
+        rate_limit:
+          type: integer
+          description: Requests per minute
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenScope'
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ApiTokenWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          properties:
+            token:
+              type: string
+              description: "The raw API key — shown ONCE at creation. Store securely."
+
+    TokenScope:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [model, endpoint, action]
+        value:
+          type: string
+          description: "model UUID, endpoint path, or action name"
+
+    CreateTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        rate_limit:
+          type: integer
+          minimum: 1
+          default: 100
+          description: Requests per minute
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenScope'
+          description: "Empty scopes = full access within org"
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Null = never expires"
+
+    # --- Model Sharing ---
+    ModelShare:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        model_id:
+          type: string
+          format: uuid
+        shared_with_org:
+          type: string
+          format: uuid
+        shared_with_org_slug:
+          type: string
+        permission:
+          type: string
+          enum: [inference, read]
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateShareRequest:
+      type: object
+      required: [shared_with_org_slug, permission]
+      properties:
+        shared_with_org_slug:
+          type: string
+          description: Slug of the organization to share with
+        permission:
+          type: string
+          enum: [inference, read]
+          default: inference
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    # --- Inference (OpenAI-compatible) ---
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: "Model identifier (org-slug/model-name or model UUID)"
+          example: "acme/llama-70b"
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          minItems: 1
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 1
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1
+        max_tokens:
+          type: integer
+          minimum: 1
+        stream:
+          type: boolean
+          default: false
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        frequency_penalty:
+          type: number
+          minimum: -2
+          maximum: 2
+          default: 0
+        presence_penalty:
+          type: number
+          minimum: -2
+          maximum: 2
+          default: 0
+        n:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 1
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "chatcmpl-abc123"
+        object:
+          type: string
+          example: "chat.completion"
+        created:
+          type: integer
+          description: Unix timestamp
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+                enum: [stop, length, content_filter]
+        usage:
+          $ref: '#/components/schemas/CompletionUsage'
+
+    CompletionRequest:
+      type: object
+      required: [model, prompt]
+      properties:
+        model:
+          type: string
+        prompt:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        max_tokens:
+          type: integer
+          minimum: 1
+          default: 16
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 1
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1
+        stream:
+          type: boolean
+          default: false
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        n:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 1
+
+    CompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          example: "text_completion"
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              text:
+                type: string
+              finish_reason:
+                type: string
+                enum: [stop, length]
+        usage:
+          $ref: '#/components/schemas/CompletionUsage'
+
+    EmbeddingRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        encoding_format:
+          type: string
+          enum: [float, base64]
+          default: float
+
+    EmbeddingResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          example: "list"
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              object:
+                type: string
+                example: "embedding"
+              index:
+                type: integer
+              embedding:
+                type: array
+                items:
+                  type: number
+        model:
+          type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    CompletionUsage:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+
+    OpenAIModel:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "org-slug/model-name"
+        object:
+          type: string
+          example: "model"
+        created:
+          type: integer
+        owned_by:
+          type: string
+
+    # --- Usage ---
+    UsageSummary:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        total_requests:
+          type: integer
+        total_input_tokens:
+          type: integer
+        total_output_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+        estimated_cost_cents:
+          type: integer
+
+    ModelUsage:
+      type: object
+      properties:
+        model_id:
+          type: string
+          format: uuid
+        model_name:
+          type: string
+        request_count:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+        avg_latency_ms:
+          type: number
+        estimated_cost_cents:
+          type: integer
+
+    TokenUsage:
+      type: object
+      properties:
+        token_id:
+          type: string
+          format: uuid
+        token_name:
+          type: string
+        token_prefix:
+          type: string
+        request_count:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+
+    UsageTimeseries:
+      type: object
+      properties:
+        granularity:
+          type: string
+          enum: [hour, day, week]
+        data_points:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              request_count:
+                type: integer
+              input_tokens:
+                type: integer
+              output_tokens:
+                type: integer
+              avg_latency_ms:
+                type: number
+              error_count:
+                type: integer
+
+    # --- Billing ---
+    BillingPeriod:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        sla_tier:
+          type: string
+          enum: [free, standard, enterprise]
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        usage:
+          $ref: '#/components/schemas/UsageSummary'
+        projected_total_cents:
+          type: integer
+        credit_cents:
+          type: integer
+          description: SLA violation credits applied
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [draft, finalized, paid, overdue, void]
+        subtotal_cents:
+          type: integer
+        credit_cents:
+          type: integer
+        tax_cents:
+          type: integer
+        total_cents:
+          type: integer
+        currency:
+          type: string
+          example: USD
+        issued_at:
+          type: string
+          format: date-time
+          nullable: true
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    InvoiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Invoice'
+        - type: object
+          properties:
+            line_items:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvoiceLineItem'
+
+    InvoiceLineItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        model_id:
+          type: string
+          format: uuid
+        model_name:
+          type: string
+        description:
+          type: string
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        unit_price_input:
+          type: string
+          description: "Price per input token (decimal string)"
+        unit_price_output:
+          type: string
+          description: "Price per output token (decimal string)"
+        amount_cents:
+          type: integer
+
+    # --- Admin ---
+    AdminUser:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            status:
+              type: string
+              enum: [active, suspended, deleted]
+            total_tokens_used:
+              type: integer
+            org_count:
+              type: integer
+
+    UpdateQuotaRequest:
+      type: object
+      properties:
+        sla_tier:
+          type: string
+          enum: [free, standard, enterprise]
+        max_models:
+          type: integer
+          minimum: 0
+        max_tokens_per_month:
+          type: integer
+          minimum: 0
+        max_requests_per_minute:
+          type: integer
+          minimum: 0
+
+    QuotaInfo:
+      type: object
+      properties:
+        org_id:
+          type: string
+          format: uuid
+        sla_tier:
+          type: string
+        max_models:
+          type: integer
+        max_tokens_per_month:
+          type: integer
+        max_requests_per_minute:
+          type: integer
+        current_models_deployed:
+          type: integer
+        current_tokens_used_this_month:
+          type: integer
+
+    SystemHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        services:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [healthy, degraded, unhealthy]
+              latency_ms:
+                type: number
+              details:
+                type: object
+                additionalProperties: true
+        database:
+          type: object
+          properties:
+            status:
+              type: string
+            connections_active:
+              type: integer
+            connections_max:
+              type: integer
+        redis:
+          type: object
+          properties:
+            status:
+              type: string
+            memory_used_mb:
+              type: number
+            connected_clients:
+              type: integer
+        nats:
+          type: object
+          properties:
+            status:
+              type: string
+            pending_messages:
+              type: integer
+        gpu_cluster:
+          type: object
+          properties:
+            total_gpus:
+              type: integer
+            available_gpus:
+              type: integer
+            active_deployments:
+              type: integer
+        checked_at:
+          type: string
+          format: date-time
