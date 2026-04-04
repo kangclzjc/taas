@@ -4,15 +4,17 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	"github.com/taas-platform/taas/internal/monitoring"
 	"github.com/taas-platform/taas/internal/token"
 	taasErrors "github.com/taas-platform/taas/pkg/errors"
 	"github.com/taas-platform/taas/pkg/middleware"
 )
 
 // RateLimitMiddleware enforces RPM rate limits based on the validated token info.
-func RateLimitMiddleware(limiter *RateLimiter, logger *zap.Logger) gin.HandlerFunc {
+func RateLimitMiddleware(limiter *RateLimiter, metrics *monitoring.Metrics, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		val, exists := c.Get("token_info")
 		if !exists {
@@ -37,6 +39,11 @@ func RateLimitMiddleware(limiter *RateLimiter, logger *zap.Logger) gin.HandlerFu
 		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
 
 		if !allowed {
+			if metrics != nil {
+				metrics.RateLimitHitsTotal.With(prometheus.Labels{
+					"org_id": info.OrgID, "limit_type": "rpm",
+				}).Inc()
+			}
 			middleware.ErrorResponse(c, taasErrors.RateLimitExceeded())
 			return
 		}

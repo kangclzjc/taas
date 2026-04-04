@@ -20,6 +20,7 @@ import (
 	"github.com/taas-platform/taas/internal/billing"
 	dynamoClient "github.com/taas-platform/taas/internal/dynamo"
 	"github.com/taas-platform/taas/internal/model"
+	"github.com/taas-platform/taas/internal/monitoring"
 	"github.com/taas-platform/taas/internal/proxy"
 	"github.com/taas-platform/taas/internal/quota"
 	"github.com/taas-platform/taas/internal/token"
@@ -73,6 +74,8 @@ func main() {
 	}
 
 	// ── Services ───────────────────────────────────────────────
+	metrics := monitoring.NewMetrics("taas")
+
 	jwtSvc := auth.NewJWTService(cfg.JWTSigningKey, cfg.JWTExpirySeconds, cfg.RefreshTokenExpiryDays)
 
 	authRepo := auth.NewRepository(dbPool)
@@ -92,7 +95,7 @@ func main() {
 
 	costCalc := billing.NewCostCalculator()
 	dc := dynamoClient.NewClient(cfg.DynamoFrontendURL)
-	proxyHandler := proxy.NewHandler(dc, usagePublisher, costCalc, logger)
+	proxyHandler := proxy.NewHandler(dc, usagePublisher, costCalc, metrics, logger)
 
 	billingHandler := billing.NewHandler(dbPool, logger)
 
@@ -132,7 +135,7 @@ func main() {
 	// API Key authenticated routes (inference)
 	v1 := router.Group("/v1")
 	v1.Use(proxy.APIKeyAuth(tokenValidator, logger))
-	v1.Use(quota.RateLimitMiddleware(rateLimiter, logger))
+	v1.Use(quota.RateLimitMiddleware(rateLimiter, metrics, logger))
 	proxyHandler.RegisterRoutes(v1)
 
 	// ── Server ─────────────────────────────────────────────────

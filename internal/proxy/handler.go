@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
 	"github.com/taas-platform/taas/internal/billing"
 	"github.com/taas-platform/taas/internal/dynamo"
+	"github.com/taas-platform/taas/internal/monitoring"
 	"github.com/taas-platform/taas/internal/token"
 	taasErrors "github.com/taas-platform/taas/pkg/errors"
 	"github.com/taas-platform/taas/pkg/middleware"
@@ -21,11 +23,12 @@ type Handler struct {
 	dynamo    *dynamo.Client
 	publisher *billing.Publisher
 	costCalc  *billing.CostCalculator
+	metrics   *monitoring.Metrics
 	logger    *zap.Logger
 }
 
-func NewHandler(dc *dynamo.Client, pub *billing.Publisher, costCalc *billing.CostCalculator, logger *zap.Logger) *Handler {
-	return &Handler{dynamo: dc, publisher: pub, costCalc: costCalc, logger: logger}
+func NewHandler(dc *dynamo.Client, pub *billing.Publisher, costCalc *billing.CostCalculator, metrics *monitoring.Metrics, logger *zap.Logger) *Handler {
+	return &Handler{dynamo: dc, publisher: pub, costCalc: costCalc, metrics: metrics, logger: logger}
 }
 
 // ChatCompletions handles POST /v1/chat/completions.
@@ -75,12 +78,14 @@ func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
 	if err != nil {
 		h.logger.Error("dynamo forward error", zap.Error(err), zap.String("path", path))
 		h.publishUsage(c, tokenInfo, rid, path, 0, 0, latency, "error")
+		h.recordMetrics(tokenInfo, "", latency, 0, 0, "error")
 		middleware.ErrorResponse(c, taasErrors.New(taasErrors.CodeDynamoError, "inference backend error", http.StatusBadGateway).WithCause(err))
 		return
 	}
 
 	// Publish usage event asynchronously
 	h.publishUsage(c, tokenInfo, rid, path, result.PromptTokens, result.CompletionTokens, latency, "success")
+	h.recordMetrics(tokenInfo, "", latency, result.PromptTokens, result.CompletionTokens, "success")
 
 	if result.Streamed {
 		c.Header("Content-Type", "text/event-stream")
@@ -91,6 +96,29 @@ func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
 	}
 	c.Status(result.HTTPStatus)
 	c.Writer.Write(buf.Bytes()) //nolint:errcheck
+}
+
+// recordMetrics updates Prometheus counters/histograms for inference requests.
+func (h *Handler) recordMetrics(info *token.CachedTokenInfo, modelID string, latency time.Duration, promptTokens, completionTokens int, status string) {
+	if h.metrics == nil || info == nil {
+		return
+	}
+	h.metrics.InferenceRequestsTotal.With(prometheus.Labels{
+		"model_id": modelID, "org_id": info.OrgID, "sla_tier": info.SLATier, "status": status,
+	}).Inc()
+	h.metrics.InferenceLatency.With(prometheus.Labels{
+		"model_id": modelID, "sla_tier": info.SLATier,
+	}).Observe(latency.Seconds())
+	if promptTokens > 0 {
+		h.metrics.InferenceTokensTotal.With(prometheus.Labels{
+			"model_id": modelID, "org_id": info.OrgID, "token_type": "prompt",
+		}).Add(float64(promptTokens))
+	}
+	if completionTokens > 0 {
+		h.metrics.InferenceTokensTotal.With(prometheus.Labels{
+			"model_id": modelID, "org_id": info.OrgID, "token_type": "completion",
+		}).Add(float64(completionTokens))
+	}
 }
 
 func (h *Handler) publishUsage(c *gin.Context, info *token.CachedTokenInfo, requestID, path string, promptTokens, completionTokens int, latency time.Duration, status string) {
