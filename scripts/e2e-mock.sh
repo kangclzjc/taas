@@ -210,7 +210,42 @@ STATUS=$(echo "$RESP" | tail -1)
 check_status "Usage by model" "200" "$STATUS"
 
 # ────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}7. Cleanup — Token Revocation & Logout${NC}"
+echo -e "\n${BOLD}7. Organization Management${NC}"
+# ────────────────────────────────────────────────────────────
+
+# Create organization
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$GATEWAY_URL/organizations" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "test-org", "display_name": "Test Organization"}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+check_status "Create organization" "201" "$STATUS"
+
+ORG_ID=$(echo "$BODY" | jq -r '.id // empty')
+
+# List organizations
+RESP=$(curl -s -w "\n%{http_code}" "$GATEWAY_URL/organizations" \
+  -H "Authorization: Bearer $ACCESS_TOKEN")
+STATUS=$(echo "$RESP" | tail -1)
+check_status "List organizations" "200" "$STATUS"
+
+# Get organization
+if [ -n "$ORG_ID" ]; then
+  RESP=$(curl -s -w "\n%{http_code}" "$GATEWAY_URL/organizations/$ORG_ID" \
+    -H "Authorization: Bearer $ACCESS_TOKEN")
+  STATUS=$(echo "$RESP" | tail -1)
+  check_status "Get organization" "200" "$STATUS"
+fi
+
+# Get /auth/me
+RESP=$(curl -s -w "\n%{http_code}" "$GATEWAY_URL/auth/me" \
+  -H "Authorization: Bearer $ACCESS_TOKEN")
+STATUS=$(echo "$RESP" | tail -1)
+check_status "GET /auth/me" "200" "$STATUS"
+
+# ────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}8. Cleanup — Token Revocation & Logout${NC}"
 # ────────────────────────────────────────────────────────────
 
 # Revoke API token
