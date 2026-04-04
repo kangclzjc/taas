@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { models, type DeploymentConfig } from '../api/client';
+import { SkeletonTable } from '../components/LoadingSkeleton';
+import EmptyState from '../components/EmptyState';
+import { useToast } from '../components/Toast';
 
 const defaultDeployConfig: DeploymentConfig = {
   replicas_min: 1,
@@ -23,6 +26,7 @@ function statusBadge(status: string) {
 
 export default function ModelsPage() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [showPublic, setShowPublic] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -32,12 +36,24 @@ export default function ModelsPage() {
 
   const deployMutation = useMutation({
     mutationFn: (id: string) => models.deploy(id, defaultDeployConfig),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['models'] });
+      addToast('Model deployment started successfully', 'success');
+    },
+    onError: () => {
+      addToast('Failed to deploy model', 'error');
+    },
   });
 
   const undeployMutation = useMutation({
     mutationFn: (id: string) => models.undeploy(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['models'] });
+      addToast('Model undeployed successfully', 'success');
+    },
+    onError: () => {
+      addToast('Failed to undeploy model', 'error');
+    },
   });
 
   const formatParams = (n: number) => {
@@ -65,14 +81,13 @@ export default function ModelsPage() {
       <div className="card">
         <div className="table-wrapper">
           {isLoading ? (
-            <div className="empty-state">
-              <div className="empty-state-text">Loading models…</div>
-            </div>
+            <SkeletonTable rows={5} cols={7} />
           ) : !data?.items?.length ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">🤖</div>
-              <div className="empty-state-text">No models found</div>
-            </div>
+            <EmptyState
+              icon="🤖"
+              title="No models found"
+              description="Upload or register a model to get started with inference."
+            />
           ) : (
             <table>
               <thead>

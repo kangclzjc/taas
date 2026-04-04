@@ -2,9 +2,13 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tokens } from '../api/client';
 import TokenModal from '../components/TokenModal';
+import { SkeletonTable } from '../components/LoadingSkeleton';
+import EmptyState from '../components/EmptyState';
+import { useToast } from '../components/Toast';
 
 export default function TokensPage() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [createdToken, setCreatedToken] = useState<string | null>(null);
 
@@ -18,12 +22,22 @@ export default function TokensPage() {
     onSuccess: (res) => {
       setCreatedToken(res.token_value);
       queryClient.invalidateQueries({ queryKey: ['tokens'] });
+      addToast('Token created successfully', 'success');
+    },
+    onError: () => {
+      addToast('Failed to create token', 'error');
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: tokens.revoke,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tokens'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tokens'] });
+      addToast('Token revoked successfully', 'success');
+    },
+    onError: () => {
+      addToast('Failed to revoke token', 'error');
+    },
   });
 
   const rotateMutation = useMutation({
@@ -32,6 +46,10 @@ export default function TokensPage() {
       setCreatedToken(res.token_value);
       setModalOpen(true);
       queryClient.invalidateQueries({ queryKey: ['tokens'] });
+      addToast('Token rotated successfully', 'success');
+    },
+    onError: () => {
+      addToast('Failed to rotate token', 'error');
     },
   });
 
@@ -62,14 +80,18 @@ export default function TokensPage() {
       <div className="card">
         <div className="table-wrapper">
           {isLoading ? (
-            <div className="empty-state">
-              <div className="empty-state-text">Loading tokens…</div>
-            </div>
+            <SkeletonTable rows={4} cols={8} />
           ) : !data?.items?.length ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">🔑</div>
-              <div className="empty-state-text">No tokens yet. Create one to get started.</div>
-            </div>
+            <EmptyState
+              icon="🔑"
+              title="No tokens yet"
+              description="Create an API token to start making requests."
+              action={
+                <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+                  + Create Token
+                </button>
+              }
+            />
           ) : (
             <table>
               <thead>
