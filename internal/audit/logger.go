@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,7 +38,8 @@ func New(logger *zap.Logger, db *pgxpool.Pool) *Logger {
 }
 
 // Log writes an audit event to the structured logger and optionally to the database.
-func (l *Logger) Log(ctx context.Context, event Event) {
+// Returns an error if the DB write fails (audit failures should not be silently ignored).
+func (l *Logger) Log(ctx context.Context, event Event) error {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
@@ -58,20 +60,24 @@ func (l *Logger) Log(ctx context.Context, event Event) {
 	}
 	l.zap.Info("audit", fields...)
 
-	// If db is available, persist to audit_log table
+	// If db is available, persist to audit_log table (P2: don't silently swallow errors)
 	if l.db != nil {
-		l.insertDB(ctx, event)
+		if err := l.insertDB(ctx, event); err != nil {
+			l.zap.Error("AUDIT PERSISTENCE FAILED — security event not recorded in DB", zap.Error(err), zap.String("action", event.Action))
+			return err
+		}
 	}
+	return nil
 }
 
-func (l *Logger) insertDB(ctx context.Context, event Event) {
+func (l *Logger) insertDB(ctx context.Context, event Event) error {
 	var detailsJSON []byte
 	if event.Details != nil {
 		var err error
 		detailsJSON, err = json.Marshal(event.Details)
 		if err != nil {
 			l.zap.Error("failed to marshal audit details", zap.Error(err))
-			return
+			return fmt.Errorf("marshal audit details: %w", err)
 		}
 	}
 
@@ -90,5 +96,7 @@ func (l *Logger) insertDB(ctx context.Context, event Event) {
 	)
 	if err != nil {
 		l.zap.Error("failed to insert audit log", zap.Error(err))
+		return fmt.Errorf("insert audit log: %w", err)
 	}
+	return nil
 }

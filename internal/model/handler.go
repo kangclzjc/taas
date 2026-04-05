@@ -2,6 +2,7 @@ package model
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 	taasErrors "github.com/taas-platform/taas/pkg/errors"
 	"github.com/taas-platform/taas/pkg/middleware"
 )
+
+// slugPattern validates model slugs: lowercase letters, digits, hyphens only (P2)
+var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 
 // Handler holds model management HTTP handlers.
 type Handler struct {
@@ -73,12 +77,19 @@ func (h *Handler) CreateModel(c *gin.Context) {
 		return
 	}
 
+	// Validate slug charset: a-z, 0-9, hyphens only (P2)
+	slug := strings.ToLower(req.Slug)
+	if len(slug) < 2 || len(slug) > 64 || !slugPattern.MatchString(slug) {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("slug must be 2-64 chars, lowercase letters, digits, and hyphens only"))
+		return
+	}
+
 	m := &Model{
 		ID:             uuid.New(),
 		OrgID:          oid,
 		OwnerUserID:    uid,
 		Name:           req.Name,
-		Slug:           strings.ToLower(req.Slug),
+		Slug:           slug,
 		Description:    req.Description,
 		Framework:      req.Framework,
 		Format:         req.Format,

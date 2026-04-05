@@ -2,6 +2,7 @@ package token
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -62,14 +63,28 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	tokens, err := h.svc.List(c.Request.Context(), oid, 100, 0)
+	// Parse pagination parameters (P2)
+	limit := 100
+	offset := 0
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 500 {
+			limit = parsed
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	tokens, err := h.svc.List(c.Request.Context(), oid, limit, offset)
 	if err != nil {
 		h.logger.Error("listing tokens", zap.Error(err))
 		middleware.ErrorResponse(c, taasErrors.Internal("failed to list tokens"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"tokens": tokens})
+	c.JSON(http.StatusOK, gin.H{"tokens": tokens, "limit": limit, "offset": offset})
 }
 
 // Delete revokes a token by ID.

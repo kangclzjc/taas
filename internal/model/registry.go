@@ -123,11 +123,16 @@ type ListModelsFilter struct {
 
 // Service provides business logic for model management.
 type Service struct {
-	repo Repository
+	repo    Repository
+	sharing *SharingService
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo Repository, sharing ...*SharingService) *Service {
+	s := &Service{repo: repo}
+	if len(sharing) > 0 {
+		s.sharing = sharing[0]
+	}
+	return s
 }
 
 // Deploy initiates a model deployment.
@@ -140,8 +145,17 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		return nil, fmt.Errorf("model is not ready for deployment (status: %s)", model.Status)
 	}
 	if model.OrgID != orgID {
-		// Check share permissions
-		return nil, fmt.Errorf("model not accessible by org %s", orgID)
+		// Check share permissions (P1: actually implement the check)
+		if s.sharing == nil {
+			return nil, fmt.Errorf("model not accessible by org %s", orgID)
+		}
+		hasAccess, err := s.sharing.HasAccess(ctx, modelID, orgID)
+		if err != nil {
+			return nil, fmt.Errorf("check share permissions: %w", err)
+		}
+		if !hasAccess {
+			return nil, fmt.Errorf("model not accessible by org %s", orgID)
+		}
 	}
 
 	d := &Deployment{

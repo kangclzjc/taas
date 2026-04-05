@@ -54,16 +54,57 @@ class ModelStorage:
         key = f"{prefix}/{model_id}/{filename}"
 
         async with self._session.create_client("s3", **self._client_kwargs()) as s3:
-            if isinstance(file, UploadFile):
-                body = await file.read()
-            else:
-                body = file.read()
+            # P0 fix: Stream upload in chunks instead of reading entire file into memory
+            # For large files (up to 50GiB), use S3 multipart upload
+            CHUNK_SIZE = 64 * 1024 * 1024  # 64 MiB per part
 
-            await s3.put_object(
+            # Initiate multipart upload
+            mpu = await s3.create_multipart_upload(
                 Bucket=self._settings.s3_bucket,
                 Key=key,
-                Body=body,
             )
+            upload_id = mpu["UploadId"]
+            parts: list[dict] = []
+            part_number = 1
+
+            try:
+                while True:
+                    if isinstance(file, UploadFile):
+                        chunk = await file.read(CHUNK_SIZE)
+                    else:
+                        chunk = file.read(CHUNK_SIZE)
+
+                    if not chunk:
+                        break
+
+                    resp = await s3.upload_part(
+                        Bucket=self._settings.s3_bucket,
+                        Key=key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=chunk,
+                    )
+                    parts.append({
+                        "PartNumber": part_number,
+                        "ETag": resp["ETag"],
+                    })
+                    part_number += 1
+
+                # Complete multipart upload
+                await s3.complete_multipart_upload(
+                    Bucket=self._settings.s3_bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    MultipartUpload={"Parts": parts},
+                )
+            except Exception:
+                # Abort multipart upload on failure to avoid orphaned parts
+                await s3.abort_multipart_upload(
+                    Bucket=self._settings.s3_bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                )
+                raise
 
         uri = f"s3://{self._settings.s3_bucket}/{key}"
         logger.info("Uploaded model %s → %s", model_id, uri)

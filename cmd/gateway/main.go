@@ -33,7 +33,10 @@ import (
 )
 
 func main() {
-	logger, _ := zap.NewProduction()
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic("failed to initialize logger: " + err.Error())
+	}
 	defer logger.Sync() //nolint:errcheck
 
 	cfg, err := config.Load("gateway")
@@ -62,8 +65,8 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to parse database config", zap.Error(err))
 	}
-	poolConfig.MaxConns = int32(cfg.DBMaxOpenConns)
-	poolConfig.MinConns = int32(cfg.DBMaxIdleConns)
+	poolConfig.MaxConns = int32(cfg.DBMaxOpenConns)  // max open connections (P3: clarified naming)
+	poolConfig.MinConns = int32(cfg.DBMaxIdleConns)  // pre-warmed idle connections
 
 	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -128,8 +131,8 @@ func main() {
 	tokenHandler := token.NewHandler(tokenSvc, logger)
 
 	modelRepo := model.NewPGRepository(dbPool)
-	modelSvc := model.NewService(modelRepo)
 	sharingService := model.NewSharingService(dbPool)
+	modelSvc := model.NewService(modelRepo, sharingService)
 	modelHandler := model.NewHandler(modelSvc, sharingService, logger)
 
 	rateLimiter := quota.NewRateLimiter(rdb)

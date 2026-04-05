@@ -2,7 +2,7 @@
 # Multi-stage Dockerfile for all Go services.
 # Usage: docker build --build-arg SERVICE=gateway -t taas-gateway .
 
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.25
 ARG ALPINE_VERSION=3.20
 ARG SERVICE=gateway
 

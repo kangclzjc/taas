@@ -8,11 +8,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/taas-platform/taas/internal/audit"
 	taasErrors "github.com/taas-platform/taas/pkg/errors"
 	"github.com/taas-platform/taas/pkg/middleware"
 )
+
+// dummyHash is a pre-computed bcrypt hash used to prevent timing attacks
+// when a login attempt is made with a non-existent email.
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("timing-attack-dummy"), bcrypt.DefaultCost)
 
 // Handler holds auth HTTP handlers.
 type Handler struct {
@@ -125,8 +130,10 @@ func (h *Handler) Login(c *gin.Context) {
 	if h.rateLimiter != nil {
 		allowed, remaining, err := h.rateLimiter.Check(c.Request.Context(), req.Email)
 		if err != nil {
-			h.logger.Error("rate limiter check failed", zap.Error(err))
-			// Fail open: allow the request but log the error
+			h.logger.Error("rate limiter check failed, failing closed", zap.Error(err))
+			// Fail closed: reject when rate limiter unavailable (security-critical path) (P1)
+			middleware.ErrorResponse(c, taasErrors.Internal("authentication service temporarily unavailable"))
+			return
 		} else if !allowed {
 			h.logAudit(c, audit.Event{
 				Action:  "login",
@@ -146,7 +153,18 @@ func (h *Handler) Login(c *gin.Context) {
 		middleware.ErrorResponse(c, taasErrors.Internal("failed to authenticate"))
 		return
 	}
-	if user == nil || !CheckPassword(user.PasswordHash, req.Password) {
+	if user == nil {
+		// Perform dummy bcrypt comparison to prevent timing-based email enumeration (P0)
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
+		h.logAudit(c, audit.Event{
+			Action:  "login",
+			Status:  "failed",
+			Details: map[string]string{"email": req.Email, "reason": "invalid_credentials"},
+		})
+		middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid email or password"))
+		return
+	}
+	if !CheckPassword(user.PasswordHash, req.Password) {
 		h.logAudit(c, audit.Event{
 			Action:  "login",
 			Status:  "failed",
@@ -214,7 +232,12 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	user, err := h.repo.GetUserByID(c.Request.Context(), uuid.MustParse(claims.UserID))
+	uid, parseErr := uuid.Parse(claims.UserID)
+	if parseErr != nil {
+		middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid user id in token"))
+		return
+	}
+	user, err := h.repo.GetUserByID(c.Request.Context(), uid)
 	if err != nil || user == nil {
 		middleware.ErrorResponse(c, taasErrors.Unauthorized("user not found"))
 		return
@@ -264,6 +287,12 @@ func (h *Handler) Logout(c *gin.Context) {
 	claims, err := h.jwt.ValidateToken(parts[1])
 	if err != nil {
 		middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid or expired token"))
+		return
+	}
+
+	// Only access tokens can be used for logout (P2)
+	if claims.TokenType != "access" {
+		middleware.ErrorResponse(c, taasErrors.Unauthorized("only access tokens can be used for logout"))
 		return
 	}
 

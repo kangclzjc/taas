@@ -68,7 +68,10 @@ func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
 	var reqBody struct {
 		Model string `json:"model"`
 	}
-	json.Unmarshal(body, &reqBody) //nolint:errcheck — best effort
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		h.logger.Warn("failed to parse request body for model extraction", zap.Error(err))
+		// Continue with empty model — best effort for metrics
+	}
 
 	requestID, _ := c.Get("request_id")
 	rid, _ := requestID.(string)
@@ -91,7 +94,9 @@ func (h *Handler) forwardToDynamo(c *gin.Context, path string) {
 	var streamCheck struct {
 		Stream bool `json:"stream"`
 	}
-	json.Unmarshal(body, &streamCheck) //nolint:errcheck
+	if err := json.Unmarshal(body, &streamCheck); err != nil {
+		h.logger.Warn("failed to parse stream flag from request body", zap.Error(err))
+	}
 
 	if streamCheck.Stream {
 		c.Header("Content-Type", "text/event-stream")
@@ -172,7 +177,17 @@ func (h *Handler) publishUsage(c *gin.Context, info *token.CachedTokenInfo, requ
 	}
 
 	if err := h.publisher.Publish(c.Request.Context(), event); err != nil {
-		h.logger.Error("failed to publish usage event", zap.Error(err))
+		h.logger.Warn("usage publish failed, retrying once", zap.Error(err))
+		// Retry once after a short delay (P2: billing retry)
+		time.Sleep(100 * time.Millisecond)
+		if retryErr := h.publisher.Publish(c.Request.Context(), event); retryErr != nil {
+			h.logger.Error("usage publish retry failed, usage event lost",
+				zap.Error(retryErr),
+				zap.String("request_id", event.RequestID),
+				zap.String("token_id", event.TokenID),
+				zap.Int("total_tokens", event.TotalTokens),
+			)
+		}
 	}
 }
 

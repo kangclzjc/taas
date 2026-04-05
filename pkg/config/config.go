@@ -120,5 +120,13 @@ func (c *Config) validate() error {
 	if len(c.JWTSigningKey) < 32 {
 		return fmt.Errorf("jwt_signing_key must be at least 32 characters")
 	}
+	// Warn about wildcard CORS in production (P1)
+	if c.Env == "production" {
+		for _, origin := range c.CORSAllowedOrigins {
+			if origin == "*" {
+				return fmt.Errorf("CORS wildcard '*' is not allowed in production; specify explicit origins")
+			}
+		}
+	}
 	return nil
 }

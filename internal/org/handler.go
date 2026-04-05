@@ -78,21 +78,11 @@ func (h *Handler) CreateOrg(c *gin.Context) {
 		SLATier:     req.SLATier,
 	}
 
-	if err := h.repo.Create(c.Request.Context(), org); err != nil {
-		h.logger.Error("creating organization", zap.Error(err))
+	// Atomic: create org + add creator as owner in one transaction (P0)
+	if err := h.repo.CreateWithOwner(c.Request.Context(), org, uid); err != nil {
+		h.logger.Error("creating organization with owner", zap.Error(err))
 		middleware.ErrorResponse(c, taasErrors.Internal("failed to create organization"))
 		return
-	}
-
-	// Add creator as owner
-	member := &OrgMember{
-		OrgID:  org.ID,
-		UserID: uid,
-		Role:   "owner",
-	}
-	if err := h.repo.AddMember(c.Request.Context(), member); err != nil {
-		h.logger.Error("adding org creator as member", zap.Error(err))
-		// Still return the org, but log the error
 	}
 
 	c.JSON(http.StatusCreated, org)

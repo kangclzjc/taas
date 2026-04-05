@@ -32,6 +32,7 @@ type OrgMember struct {
 // OrgRepository defines the interface for organization persistence operations.
 type OrgRepository interface {
 	Create(ctx context.Context, org *Organization) error
+	CreateWithOwner(ctx context.Context, org *Organization, ownerUserID uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Organization, error)
 	GetBySlug(ctx context.Context, slug string) (*Organization, error)
 	Update(ctx context.Context, org *Organization) error
@@ -51,6 +52,48 @@ type Repository struct {
 // NewRepository creates a new org repository backed by PostgreSQL.
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
+}
+
+// CreateWithOwner creates an org and adds the owner in a single transaction.
+func (r *Repository) CreateWithOwner(ctx context.Context, org *Organization, ownerUserID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if org.ID == uuid.Nil {
+		org.ID = uuid.New()
+	}
+	now := time.Now().UTC()
+	org.CreatedAt = now
+	org.UpdatedAt = now
+	if org.SLATier == "" {
+		org.SLATier = "standard"
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO organizations (id, slug, display_name, sla_tier, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		org.ID, org.Slug, org.DisplayName, org.SLATier, org.CreatedAt, org.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("inserting organization: %w", err)
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO org_members (org_id, user_id, role, joined_at)
+		 VALUES ($1, $2, $3, $4)`,
+		org.ID, ownerUserID, "owner", now,
+	)
+	if err != nil {
+		return fmt.Errorf("adding org owner: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }
 
 // Create inserts a new organization.

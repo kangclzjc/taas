@@ -6,6 +6,7 @@ compares against SLA thresholds, and publishes violations to NATS.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -113,11 +114,20 @@ class SLAEvaluator:
         }
         return thresholds.get(sla_tier, self.settings.standard_p99_latency_ms)
 
+    @staticmethod
+    def _sanitize_label(value: str) -> str:
+        """Sanitize a PromQL label value to prevent injection (P1)."""
+        # Only allow UUID-like characters: a-z, 0-9, hyphens
+        if not re.match(r'^[a-zA-Z0-9_-]+$', value):
+            raise ValueError(f"Invalid label value: {value!r}")
+        return value
+
     async def _query_p99_latency(self, deployment_id: str) -> float | None:
         """Query Prometheus for P99 inference latency over the last 5 minutes."""
+        safe_id = self._sanitize_label(deployment_id)
         query = (
             f'histogram_quantile(0.99, rate(taas_inference_latency_seconds_bucket'
-            f'{{deployment_id="{deployment_id}"}}[5m]))'
+            f'{{deployment_id="{safe_id}"}}[5m]))'
         )
         result = await self._prometheus_query(query)
         if result is not None:
@@ -126,13 +136,14 @@ class SLAEvaluator:
 
     async def _query_error_rate(self, deployment_id: str) -> float | None:
         """Query Prometheus for error rate over the last 5 minutes."""
+        safe_id = self._sanitize_label(deployment_id)
         total_query = (
             f'sum(rate(taas_inference_requests_total'
-            f'{{deployment_id="{deployment_id}"}}[5m]))'
+            f'{{deployment_id="{safe_id}"}}[5m]))'
         )
         error_query = (
             f'sum(rate(taas_inference_requests_total'
-            f'{{deployment_id="{deployment_id}", status="error"}}[5m]))'
+            f'{{deployment_id="{safe_id}", status="error"}}[5m]))'
         )
 
         total = await self._prometheus_query(total_query)

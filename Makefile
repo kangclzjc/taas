@@ -92,7 +92,7 @@ docker-build-%: ## Build Docker image for a specific service
 		--build-arg COMMIT=$(COMMIT) \
 		-t $(REGISTRY)/taas-$*:$(TAG) \
 		-t $(REGISTRY)/taas-$*:latest \
-		-f deploy/docker/Dockerfile.go .
+		-f deploy/docker/Dockerfile .
 
 docker-push: $(addprefix docker-push-, $(SERVICES)) ## Push all Docker images
 
