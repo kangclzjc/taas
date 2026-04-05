@@ -1,0 +1,67 @@
+{{- if .Values.billing.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-billing
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "billing" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.billing.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-billing
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "billing" "root" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: billing
+          image: {{ include "taas.image" (dict "repo" .Values.billing.image.repository "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.billing.service.port }}
+              protocol: TCP
+          env:
+            - name: TAAS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: database-url
+            - name: TAAS_NATS_URL
+              value: {{ .Values.nats.url | default "nats://taas-nats:4222" }}
+            - name: TAAS_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taas-redis-secret
+                  key: redis-url
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.billing.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

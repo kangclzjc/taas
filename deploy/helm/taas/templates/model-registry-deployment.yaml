@@ -1,0 +1,76 @@
+{{- if .Values.modelRegistry.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-model-registry
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "model-registry" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.modelRegistry.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-model-registry
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "model-registry" "root" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: model-registry
+          image: {{ include "taas.image" (dict "repo" .Values.modelRegistry.image.repository "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.modelRegistry.service.port }}
+              protocol: TCP
+          env:
+            - name: TAAS_REGISTRY_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: database-url
+            - name: TAAS_REGISTRY_NATS_URL
+              value: {{ .Values.nats.url | default "nats://taas-nats:4222" }}
+            - name: TAAS_REGISTRY_S3_BUCKET
+              value: {{ .Values.modelRegistry.s3.bucket }}
+            - name: TAAS_REGISTRY_S3_REGION
+              value: {{ .Values.modelRegistry.s3.region }}
+            - name: TAAS_REGISTRY_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taas-s3-secret
+                  key: access-key
+            - name: TAAS_REGISTRY_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taas-s3-secret
+                  key: secret-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.modelRegistry.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

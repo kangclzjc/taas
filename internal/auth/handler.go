@@ -110,6 +110,9 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	// Set httpOnly cookies for web clients (P0: move tokens out of localStorage)
+	h.setAuthCookies(c, accessToken, refreshToken)
+
 	c.JSON(http.StatusCreated, authResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -199,6 +202,9 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	// Set httpOnly cookies for web clients (P0)
+	h.setAuthCookies(c, accessToken, refreshToken)
+
 	h.logAudit(c, audit.Event{
 		UserID: user.ID.String(),
 		OrgID:  user.OrgID.String(),
@@ -260,6 +266,9 @@ func (h *Handler) Refresh(c *gin.Context) {
 		middleware.ErrorResponse(c, taasErrors.Internal("failed to issue token"))
 		return
 	}
+
+	// Set httpOnly cookies for web clients (P0)
+	h.setAuthCookies(c, accessToken, refreshToken)
 
 	c.JSON(http.StatusOK, authResponse{
 		AccessToken:  accessToken,
@@ -359,4 +368,15 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 // RegisterProtectedRoutes sets up auth routes that require JWT authentication.
 func (h *Handler) RegisterProtectedRoutes(rg *gin.RouterGroup) {
 	rg.GET("/me", h.GetMe)
+}
+
+// setAuthCookies sets httpOnly, Secure cookies for access and refresh tokens.
+// This prevents XSS attacks from stealing tokens out of localStorage (P0).
+func (h *Handler) setAuthCookies(c *gin.Context, accessToken, refreshToken string) {
+	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+
+	c.SetCookie("taas_access_token", accessToken, int(h.jwt.accessExpiry.Seconds()), "/", "", secure, true)
+	c.SetCookie("taas_refresh_token", refreshToken, int(h.jwt.refreshExpiry.Seconds()), "/auth/refresh", "", secure, true)
+	// Set SameSite=Strict via header (gin's SetCookie doesn't support SameSite directly)
+	c.Header("Set-Cookie", c.Writer.Header().Get("Set-Cookie")+"; SameSite=Strict")
 }

@@ -1,0 +1,48 @@
+{{- if .Values.slaMonitor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-sla-monitor
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "sla-monitor" "root" .) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-sla-monitor
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "sla-monitor" "root" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: sla-monitor
+          image: {{ include "taas.image" (dict "repo" .Values.slaMonitor.image.repository "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: TAAS_NATS_URL
+              value: {{ .Values.nats.url | default "nats://taas-nats:4222" }}
+            - name: TAAS_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: database-url
+            - name: TAAS_PROMETHEUS_URL
+              value: {{ .Values.slaMonitor.prometheusUrl | default "http://prometheus:9090" }}
+          resources:
+            {{- toYaml .Values.slaMonitor.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

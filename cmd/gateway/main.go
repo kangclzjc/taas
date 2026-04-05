@@ -216,10 +216,36 @@ func main() {
 	jwtAuth.Use(auth.JWTMiddleware(jwtSvc, blocklist))
 	{
 		authHandler.RegisterProtectedRoutes(jwtAuth.Group("/auth"))
-		tokenHandler.RegisterRoutes(jwtAuth.Group("/tokens"))
-		modelHandler.RegisterRoutes(jwtAuth.Group("/models"))
+
+		// Token management: all authenticated users can list, but only members+ can create/delete (P2: RBAC)
+		tokenGroup := jwtAuth.Group("/tokens")
+		tokenGroup.GET("", tokenHandler.List)
+		tokenGroup.POST("", auth.RequireWriteAccess(), tokenHandler.Create)
+		tokenGroup.DELETE("/:id", auth.RequireWriteAccess(), tokenHandler.Delete)
+		tokenGroup.POST("/:id/rotate", auth.RequireWriteAccess(), tokenHandler.Rotate)
+
+		// Model management: all can list/view, but only members+ can create/delete/deploy/share (P2: RBAC)
+		modelGroup := jwtAuth.Group("/models")
+		modelGroup.GET("", modelHandler.ListModels)
+		modelGroup.GET("/:id", modelHandler.GetModel)
+		modelGroup.GET("/:id/deployments", modelHandler.ListDeployments)
+		modelGroup.POST("", auth.RequireWriteAccess(), modelHandler.CreateModel)
+		modelGroup.DELETE("/:id", auth.RequireWriteAccess(), modelHandler.DeleteModel)
+		modelGroup.POST("/:id/deploy", auth.RequireWriteAccess(), modelHandler.DeployModel)
+		modelGroup.POST("/:id/share", auth.RequireAdminAccess(), modelHandler.ShareModel)
+
 		billingHandler.RegisterRoutes(jwtAuth.Group("/usage"))
-		orgHandler.RegisterRoutes(jwtAuth.Group("/organizations"))
+
+		// Org management: all can list/view, admins+ can create/update/delete, owners can manage members (P2: RBAC)
+		orgGroup := jwtAuth.Group("/organizations")
+		orgGroup.GET("", orgHandler.ListOrgs)
+		orgGroup.POST("", orgHandler.CreateOrg)
+		orgGroup.GET("/:id", orgHandler.GetOrg)
+		orgGroup.PUT("/:id", auth.RequireAdminAccess(), orgHandler.UpdateOrg)
+		orgGroup.DELETE("/:id", auth.RequireRole("owner"), orgHandler.DeleteOrg)
+		orgGroup.GET("/:id/members", orgHandler.ListMembers)
+		orgGroup.POST("/:id/members", auth.RequireAdminAccess(), orgHandler.AddMember)
+		orgGroup.DELETE("/:id/members/:userId", auth.RequireAdminAccess(), orgHandler.RemoveMember)
 	}
 
 	// Admin-only routes (require owner or admin role)

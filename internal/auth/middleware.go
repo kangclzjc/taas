@@ -9,24 +9,33 @@ import (
 	"github.com/taas-platform/taas/pkg/middleware"
 )
 
-// JWTMiddleware validates the Authorization: Bearer <jwt> header
+// JWTMiddleware validates the Authorization: Bearer <jwt> header (or httpOnly cookie fallback)
 // and sets user context keys (user_id, org_id, email, role) on the gin context.
 // If a blocklist is provided, revoked tokens are rejected.
 func JWTMiddleware(jwtSvc *JWTService, blocklist *Blocklist) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var tokenStr string
+
+		// Try Authorization header first (API clients, CLI)
 		header := c.GetHeader("Authorization")
-		if header == "" {
-			middleware.ErrorResponse(c, taasErrors.Unauthorized("missing authorization header"))
-			return
+		if header != "" {
+			parts := strings.SplitN(header, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+				middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid authorization format"))
+				return
+			}
+			tokenStr = parts[1]
+		} else {
+			// Fallback: read from httpOnly cookie (web browser clients) (P0)
+			cookie, err := c.Cookie("taas_access_token")
+			if err != nil || cookie == "" {
+				middleware.ErrorResponse(c, taasErrors.Unauthorized("missing authorization header or cookie"))
+				return
+			}
+			tokenStr = cookie
 		}
 
-		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-			middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid authorization format"))
-			return
-		}
-
-		claims, err := jwtSvc.ValidateToken(parts[1])
+		claims, err := jwtSvc.ValidateToken(tokenStr)
 		if err != nil {
 			middleware.ErrorResponse(c, taasErrors.Unauthorized("invalid or expired token"))
 			return

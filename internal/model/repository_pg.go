@@ -64,16 +64,15 @@ func (r *PGRepository) GetModelBySlug(ctx context.Context, orgID uuid.UUID, slug
 }
 
 func (r *PGRepository) ListModels(ctx context.Context, filter ListModelsFilter) ([]*Model, int, error) {
+	// Use window function to get total count in a single query (P2: N+1 optimization)
 	query := `SELECT id, org_id, owner_user_id, name, slug, description, framework, format,
 		 storage_uri, storage_size_bytes, parameter_count, context_length, is_public, status,
-		 created_at, updated_at FROM models WHERE 1=1`
-	countQuery := `SELECT COUNT(*) FROM models WHERE 1=1`
+		 created_at, updated_at, COUNT(*) OVER() AS total_count FROM models WHERE 1=1`
 	args := []any{}
 	argIdx := 1
 
 	addFilter := func(clause string, val any) {
 		query += fmt.Sprintf(" AND %s $%d", clause, argIdx)
-		countQuery += fmt.Sprintf(" AND %s $%d", clause, argIdx)
 		args = append(args, val)
 		argIdx++
 	}
@@ -91,11 +90,6 @@ func (r *PGRepository) ListModels(ctx context.Context, filter ListModelsFilter) 
 		addFilter("status =", string(*filter.Status))
 	}
 
-	var total int
-	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
 	if filter.Limit <= 0 {
 		filter.Limit = 20
 	}
@@ -109,11 +103,12 @@ func (r *PGRepository) ListModels(ctx context.Context, filter ListModelsFilter) 
 	defer rows.Close()
 
 	var models []*Model
+	var total int
 	for rows.Next() {
 		m := &Model{}
 		if err := rows.Scan(&m.ID, &m.OrgID, &m.OwnerUserID, &m.Name, &m.Slug, &m.Description, &m.Framework, &m.Format,
 			&m.StorageURI, &m.StorageBytes, &m.ParameterCount, &m.ContextLength, &m.IsPublic, &m.Status,
-			&m.CreatedAt, &m.UpdatedAt); err != nil {
+			&m.CreatedAt, &m.UpdatedAt, &total); err != nil {
 			return nil, 0, err
 		}
 		models = append(models, m)

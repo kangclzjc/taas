@@ -1,6 +1,13 @@
 /**
  * TaaS API Client
  * Type-safe wrapper around the TaaS REST API.
+ *
+ * Auth strategy:
+ * - Access token stored in httpOnly cookie (set by backend via Set-Cookie)
+ * - Refresh token stored in httpOnly cookie
+ * - Credentials included via fetch({ credentials: 'same-origin' })
+ * - Fallback: for programmatic/CLI usage, Bearer token header is still supported
+ * - Auto-refresh: 401 responses trigger a transparent token refresh + retry
  */
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
@@ -17,18 +24,78 @@ export class APIError extends Error {
   }
 }
 
+let isRefreshing = false;
+let refreshQueue: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+
+function processRefreshQueue(error: Error | null) {
+  refreshQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error);
+    else resolve();
+  });
+  refreshQueue = [];
+}
+
+async function attemptRefresh(): Promise<void> {
+  const res = await fetch(`${BASE_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    throw new APIError('REFRESH_FAILED', 'Token refresh failed', res.status);
+  }
+  // New tokens are set via Set-Cookie by the backend
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
+  _isRetry = false,
 ): Promise<T> {
-  const token = localStorage.getItem('taas_access_token');
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'same-origin', // Send httpOnly cookies automatically
+  });
+
+  // Auto-refresh on 401 (unless this is already a retry or a refresh/login/register request)
+  if (
+    res.status === 401 &&
+    !_isRetry &&
+    !path.startsWith('/auth/login') &&
+    !path.startsWith('/auth/register') &&
+    !path.startsWith('/auth/refresh')
+  ) {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        await attemptRefresh();
+        processRefreshQueue(null);
+      } catch (err) {
+        processRefreshQueue(err as Error);
+        // Refresh failed — redirect to login or throw
+        throw new APIError('SESSION_EXPIRED', 'Session expired, please log in again', 401);
+      } finally {
+        isRefreshing = false;
+      }
+      // Retry the original request
+      return request<T>(path, options, true);
+    } else {
+      // Another refresh is in progress — wait for it
+      return new Promise<T>((resolve, reject) => {
+        refreshQueue.push({
+          resolve: () => resolve(request<T>(path, options, true)),
+          reject,
+        });
+      });
+    }
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ code: 'UNKNOWN', message: res.statusText }));
@@ -62,10 +129,10 @@ export const auth = {
   changePassword: (data: { current_password: string; new_password: string }) =>
     request('/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
 
-  refresh: (refreshToken: string) =>
+  refresh: () =>
     request<LoginResponse>('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: JSON.stringify({}),
     }),
 
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -120,7 +187,12 @@ export interface APIToken {
 }
 
 export const tokens = {
-  list: () => request<{ items: APIToken[] }>('/tokens'),
+  list: (params?: { limit?: number; offset?: number }) => {
+    const qs = params ? '?' + new URLSearchParams(
+      Object.entries(params).reduce((acc, [k, v]) => { if (v != null) acc[k] = String(v); return acc; }, {} as Record<string, string>)
+    ).toString() : '';
+    return request<{ items: APIToken[]; limit: number; offset: number }>(`/tokens${qs}`);
+  },
   create: (data: {
     name: string; model_ids?: string[]; scopes: string[];
     rate_limit_rpm?: number; expires_at?: string; budget_limit_usd?: number;
