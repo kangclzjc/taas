@@ -12,8 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// AdminClient communicates with the LiteLLM Proxy Admin API to manage virtual keys.
-// When TaaS creates/deletes/rotates API tokens, we sync them as LiteLLM virtual keys.
+// AdminClient communicates with the LiteLLM Proxy Admin API to manage virtual keys and models.
+//
+// Key management: sync TaaS tokens as LiteLLM virtual keys.
+// Model management: register/remove Dynamo endpoints as LiteLLM model deployments.
 type AdminClient struct {
 	baseURL    string
 	masterKey  string

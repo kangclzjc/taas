@@ -2,88 +2,106 @@
 
 ## Overview
 
-TaaS has migrated its API proxy layer from a custom Go implementation to **LiteLLM Proxy**, an open-source AI Gateway. This reduces maintenance burden while gaining battle-tested features for API key management, rate limiting, cost tracking, and model routing.
+TaaS has been restructured into a clean **control plane + data plane** architecture:
 
-## Architecture Change
+- **TaaS** = Control Plane (manage models, deployments, tokens, orgs, billing)
+- **LiteLLM Proxy** = Data Plane (handle all inference requests)
 
-### Before (Legacy Mode)
+TaaS dynamically registers Dynamo endpoints into LiteLLM when deployments start, and removes them when deployments stop. No static model configuration needed.
+
+## Architecture
+
 ```
-Client → TaaS Gateway (Go)
-           ├─ API Key Auth (internal/token/validator.go)
-           ├─ Rate Limiting (internal/quota/)
-           ├─ Proxy Handler (internal/proxy/)
-           └─ → NVIDIA Dynamo (GPU inference)
+┌─────────────────────────────────────────────────────┐
+│                      Clients                         │
+│   (SDKs, CLI, Applications)                          │
+├──────────────┬──────────────────────────────────────┤
+│  Management  │         Inference                     │
+│  Requests    │         Requests                      │
+▼              ▼                                       │
+┌──────────┐  ┌──────────────────────┐                │
+│   TaaS    │  │   LiteLLM Proxy      │                │
+│  Gateway  │  │   (:4000)            │                │
+│  (:8080)  │  │                      │                │
+│           │  │  ✓ Virtual Key Auth  │                │
+│ ✓ Auth    │──│  ✓ Rate Limiting     │                │
+│ ✓ Tokens ←──→  ✓ Cost Tracking     │                │
+│ ✓ Models ←──→  ✓ Model Routing     │                │
+│ ✓ Billing │  │  ✓ Failover         │                │
+│ ✓ Orgs    │  └─────────┬───────────┘                │
+│ ✓ Dashboard│            │                            │
+└─────┬──────┘            │                            │
+      │                   ▼                            │
+      │           ┌───────────────┐                    │
+      │           │ NVIDIA Dynamo │                    │
+      └──────────→│ (GPU Inference)│                   │
+   Deploy via     └───────────────┘                    │
+   K8s Operator                                        │
+└─────────────────────────────────────────────────────┘
 ```
 
-### After (LiteLLM Mode)
-```
-Client → LiteLLM Proxy (:4000)
-           ├─ Virtual Key Auth
-           ├─ RPM/TPM Rate Limiting
-           ├─ Cost Tracking
-           ├─ Model Routing
-           └─ → TaaS Dynamo Bridge (:8090)
-                  ├─ Tenant Header Injection
-                  ├─ Usage Publishing (NATS)
-                  └─ → NVIDIA Dynamo (GPU inference)
+## How It Works
 
-TaaS Gateway (:8080)
-  ├─ Auth (JWT login/register)
-  ├─ Token CRUD (syncs with LiteLLM virtual keys)
-  ├─ Model Management
-  ├─ Billing/Usage API
-  ├─ Organization Management
-  ├─ LiteLLM Webhook (/webhooks/litellm)
-  └─ Web Dashboard
+### Model Deployment Flow
+```
+1. User calls TaaS: POST /models/:id/deploy
+2. TaaS creates Deployment record (status: "pending")
+3. TaaS publishes NATS event → Dynamo Operator
+4. Dynamo Operator creates K8s DynamoWorker CRD
+5. Dynamo starts, reports endpoint_url via NATS
+6. TaaS receives event, updates Deployment (status: "running", endpoint_url)
+7. TaaS calls LiteLLM: POST /model/new (registers endpoint)
+8. ✅ Clients can now call the model via LiteLLM
 ```
 
-## What Moved to LiteLLM
+### Model Stop/Delete Flow
+```
+1. User calls TaaS: DELETE /models/:id or stop deployment
+2. TaaS calls LiteLLM: POST /model/delete (removes from routing)
+3. TaaS publishes NATS event → Dynamo Operator cleans up K8s
+```
 
-| Feature | Before | After |
-|---------|--------|-------|
-| API key authentication | `internal/proxy/middleware.go` (APIKeyAuth) | LiteLLM virtual keys |
-| Rate limiting (RPM/TPM) | `internal/quota/ratelimiter.go` | LiteLLM per-key limits |
-| Cost calculation | `internal/billing/cost_calculator.go` | LiteLLM built-in cost tracking |
-| Request routing | `internal/proxy/handler.go` | LiteLLM `model_list` config |
-| Response caching | Not implemented | LiteLLM Redis cache |
+### Token (API Key) Flow
+```
+1. User calls TaaS: POST /tokens
+2. TaaS creates token record
+3. TaaS calls LiteLLM: POST /key/generate (creates virtual key)
+4. Returns LiteLLM key (sk-...) to user
+5. User uses this key to call LiteLLM for inference
+```
 
-## What Stays in TaaS
+## Components
 
-| Feature | Component |
-|---------|-----------|
-| User authentication (JWT) | `internal/auth/` |
-| Token CRUD + LiteLLM sync | `internal/token/` + `internal/litellm/admin_client.go` |
-| Model registry & deployment | `internal/model/` + `python/model_registry/` |
-| Billing data persistence | `internal/billing/collector.go` + `internal/litellm/webhook.go` |
-| Organization management | `internal/org/` |
-| Dynamo integration | `internal/dynamo/` (via Dynamo Bridge) |
-| SLA monitoring | `python/sla_monitor/` |
-| Dynamo operator (K8s) | `python/dynamo_operator/` |
-| Web dashboard | `web/` |
+| Component | Role | Port |
+|-----------|------|------|
+| **LiteLLM Proxy** | Data plane — all inference traffic | 4000 |
+| **TaaS Gateway** | Control plane — management API + dashboard | 8080 |
+| **Dynamo Operator** | K8s operator for Dynamo CRDs | - |
+| **Model Registry** | Model metadata storage | - |
+| **SLA Monitor** | SLA metrics & alerting | - |
 
-## New Components
+## What TaaS Manages
 
-### Dynamo Bridge (`cmd/dynamo-bridge/`)
-Lightweight Go service between LiteLLM and NVIDIA Dynamo:
-- Translates LiteLLM headers → Dynamo tenant headers
-- Publishes usage events to NATS
-- Preserves streaming support
-- Port: 8090
+- **Dynamo deployments**: Create, scale, stop GPU inference services
+- **LiteLLM models**: Register/remove Dynamo endpoints (via `/model/new`, `/model/delete`)
+- **LiteLLM virtual keys**: Create/revoke API keys (via `/key/generate`, `/key/delete`)
+- **Users & organizations**: JWT auth, RBAC, multi-tenancy
+- **Billing**: Usage records from LiteLLM webhooks + NATS events
+- **Dashboard**: Web UI for all the above
 
-### LiteLLM Webhook (`internal/litellm/webhook.go`)
-Receives success/failure callbacks from LiteLLM Proxy and writes to `usage_records` table.
-- Endpoint: `POST /webhooks/litellm`
-- Auth: Bearer token (LITELLM_WEBHOOK_SECRET)
+## What LiteLLM Handles
 
-### LiteLLM Admin Client (`internal/litellm/admin_client.go`)
-Communicates with LiteLLM's `/key/generate`, `/key/delete`, `/key/info` APIs to sync TaaS tokens as virtual keys.
-
-### Token LiteLLM Service (`internal/token/litellm_service.go`)
-Wraps the base token service to automatically sync Create/Revoke/Rotate operations with LiteLLM Proxy.
+- **Inference routing**: Forward requests to correct Dynamo endpoint
+- **API key validation**: Virtual keys with per-key rate limits
+- **Rate limiting**: RPM/TPM per key, per team
+- **Cost tracking**: Per-model token pricing
+- **Failover**: Retry across multiple deployments
+- **Caching**: Redis-based response cache
+- **Observability**: Metrics, logging, webhook callbacks
 
 ## Configuration
 
-### Environment Variables (new)
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -91,50 +109,65 @@ Wraps the base token service to automatically sync Create/Revoke/Rotate operatio
 | `LITELLM_PROXY_URL` | LiteLLM Proxy base URL | - |
 | `LITELLM_MASTER_KEY` | LiteLLM admin API key | - |
 | `LITELLM_WEBHOOK_SECRET` | Shared secret for webhook auth | - |
-| `BRIDGE_INTERNAL_KEY` | Shared secret between LiteLLM and Dynamo Bridge | `internal-bridge-key` |
 
 ### LiteLLM Config (`litellm/config.yaml`)
-Defines model routing, pricing, rate limits, and callback webhooks. See the file for details.
+Minimal config — models are managed dynamically. Only contains:
+- Database URL (shared with TaaS)
+- Redis cache settings
+- Webhook callback URL
+- Router settings (retry, timeout, failover)
 
 ## Database Migration
 
-Run migration `004_litellm_integration` to add the `litellm_key_token` column:
+Run migration `004_litellm_integration`:
 ```sql
+-- api_tokens: LiteLLM virtual key reference
 ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS litellm_key_token TEXT DEFAULT '';
+
+-- deployments: LiteLLM model ID for cleanup
+ALTER TABLE deployments ADD COLUMN IF NOT EXISTS litellm_model_id TEXT DEFAULT '';
 ```
 
 ## Backward Compatibility
 
-The system supports both modes:
-- **`LITELLM_ENABLED=false`** (default): Legacy mode, uses the original Go proxy layer
-- **`LITELLM_ENABLED=true`**: LiteLLM mode, /v1 routes are NOT registered on the gateway
-
-Legacy mode is deprecated and will be removed in a future version.
+- `LITELLM_ENABLED=false` (default): Legacy mode, uses the original Go proxy layer
+- `LITELLM_ENABLED=true`: LiteLLM mode, `/v1` inference routes are NOT on the gateway
 
 ## Development
 
 ```bash
-# Start everything with LiteLLM
+# Start everything
 docker compose up -d
 
 # Services:
 #   LiteLLM Proxy:    http://localhost:4000  (inference API)
 #   TaaS Gateway:     http://localhost:8080  (management API + dashboard)
-#   Dynamo Bridge:    http://localhost:8090  (internal, LiteLLM → Dynamo)
-#   Mock Dynamo:      http://localhost:9090  (dev only)
 #   PostgreSQL:       localhost:5432
 #   Redis:            localhost:6379
 #   NATS:             localhost:4222
 
-# Test inference through LiteLLM
-curl http://localhost:4000/v1/chat/completions \
-  -H "Authorization: Bearer sk-your-virtual-key" \
+# 1. Register & login
+curl -X POST http://localhost:8080/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"model": "llama-3-8b", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"email": "admin@example.com", "password": "Admin123!", "name": "Admin"}'
 
-# Create a virtual key via TaaS (auto-syncs to LiteLLM)
-curl http://localhost:8080/tokens \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-key", "rate_limit_rpm": 60}'
+# 2. Create a model
+curl -X POST http://localhost:8080/models \
+  -H "Authorization: Bearer <jwt>" \
+  -d '{"name": "LLaMA 3 8B", "slug": "llama-3-8b", "framework": "pytorch"}'
+
+# 3. Deploy it (TaaS → Dynamo Operator → Dynamo → registers in LiteLLM)
+curl -X POST http://localhost:8080/models/<id>/deploy \
+  -H "Authorization: Bearer <jwt>" \
+  -d '{"name": "prod-llama", "replicas_min": 1}'
+
+# 4. Create an API key (auto-syncs to LiteLLM virtual key)
+curl -X POST http://localhost:8080/tokens \
+  -H "Authorization: Bearer <jwt>" \
+  -d '{"name": "my-app-key", "rate_limit_rpm": 60}'
+
+# 5. Use the key for inference (goes to LiteLLM → Dynamo)
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-..." \
+  -d '{"model": "llama-3-8b", "messages": [{"role": "user", "content": "Hello"}]}'
 ```

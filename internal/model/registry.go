@@ -89,6 +89,7 @@ type Deployment struct {
 	DynamoServiceName   string           `db:"dynamo_service_name"`
 	DynamoNamespace     string           `db:"dynamo_namespace"`
 	EndpointURL         string           `db:"endpoint_url"`
+	LiteLLMModelID      string           `db:"litellm_model_id"`  // LiteLLM model ID for cleanup on stop
 	ErrorMessage        string           `db:"error_message"`
 	DeployedAt          *time.Time       `db:"deployed_at"`
 	CreatedAt           time.Time        `db:"created_at"`
@@ -109,6 +110,7 @@ type Repository interface {
 	GetActiveDeployment(ctx context.Context, modelID uuid.UUID) (*Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, id uuid.UUID, status DeploymentStatus, endpointURL, errorMsg string) error
 	ListDeployments(ctx context.Context, modelID uuid.UUID) ([]*Deployment, error)
+	SetDeploymentLiteLLMID(ctx context.Context, id uuid.UUID, litellmModelID string) error
 }
 
 // ListModelsFilter specifies query criteria for model listing.

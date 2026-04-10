@@ -145,10 +145,15 @@ func main() {
 	tokenValidator := token.NewValidator(rdb, tokenRepo.LookupForValidation)
 	tokenSvc := token.NewService(tokenRepo, tokenValidator, logger)
 
+	// LiteLLM admin client (shared by token and model services)
+	var litellmAdmin *litellmPkg.AdminClient
+	if litellmEnabled && litellmProxyURL != "" && litellmMasterKey != "" {
+		litellmAdmin = litellmPkg.NewAdminClient(litellmProxyURL, litellmMasterKey, logger)
+	}
+
 	// Token handler: with or without LiteLLM sync
 	var tokenHandler *token.Handler
-	if litellmEnabled && litellmProxyURL != "" && litellmMasterKey != "" {
-		litellmAdmin := litellmPkg.NewAdminClient(litellmProxyURL, litellmMasterKey, logger)
+	if litellmAdmin != nil {
 		litellmTokenSvc := token.NewLiteLLMService(tokenSvc, litellmAdmin, logger)
 		tokenHandler = token.NewLiteLLMHandler(litellmTokenSvc, logger)
 		logger.Info("token service: LiteLLM virtual key sync enabled")
@@ -163,6 +168,17 @@ func main() {
 	sharingService := model.NewSharingService(dbPool)
 	modelSvc := model.NewService(modelRepo, sharingService)
 	modelHandler := model.NewHandler(modelSvc, sharingService, logger)
+
+	// Model LiteLLM sync: registers Dynamo endpoints in LiteLLM when deployments become ready
+	var modelLiteLLMSvc *model.LiteLLMService
+	if litellmAdmin != nil {
+		modelLiteLLMSvc = model.NewLiteLLMService(modelSvc, litellmAdmin, modelRepo, logger)
+		logger.Info("model service: LiteLLM model sync enabled")
+	}
+	// Note: modelLiteLLMSvc.OnDeploymentRunning() should be called from the NATS
+	// deployment.status.updated consumer when status == "running".
+	// modelLiteLLMSvc.OnDeploymentStopped() when status == "stopped" or "failed".
+	_ = modelLiteLLMSvc // available for NATS consumer wiring
 
 	// Deprecated: These are only used when LITELLM_ENABLED=false (legacy mode).
 	// In LiteLLM mode, rate limiting and proxy are handled by LiteLLM Proxy + Dynamo Bridge.

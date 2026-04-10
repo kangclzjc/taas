@@ -214,3 +214,11 @@ func (r *PGRepository) ListDeployments(ctx context.Context, modelID uuid.UUID) (
 	}
 	return deployments, rows.Err()
 }
+
+// SetDeploymentLiteLLMID stores the LiteLLM model ID for a deployment (for cleanup on stop).
+func (r *PGRepository) SetDeploymentLiteLLMID(ctx context.Context, id uuid.UUID, litellmModelID string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE deployments SET litellm_model_id = $1, updated_at = NOW() WHERE id = $2`,
+		litellmModelID, id)
+	return err
+}
