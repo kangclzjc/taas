@@ -72,6 +72,7 @@ type Model struct {
 }
 
 // Deployment represents a running model deployment.
+// Fields map to NVIDIA Dynamo DGDR (DynamoGraphDeploymentRequest) spec.
 type Deployment struct {
 	ID                  uuid.UUID        `db:"id"`
 	ModelID             uuid.UUID        `db:"model_id"`
@@ -79,17 +80,51 @@ type Deployment struct {
 	Name                string           `db:"name"`
 	Status              DeploymentStatus `db:"status"`
 	SLATier             SLATier          `db:"sla_tier"`
+
+	// Hardware
+	GPUType             string           `db:"gpu_type"`               // GPU SKU: h200_sxm, h100_sxm, a100_sxm
+	GPUCountPerReplica  int              `db:"gpu_count_per_replica"`
+	NumGPUsPerNode      int              `db:"num_gpus_per_node"`       // DGDR hardware.numGpusPerNode
+	VRAMMb              int              `db:"vram_mb"`                 // DGDR hardware.vramMb
+
+	// Scaling
 	ReplicasMin         int              `db:"replicas_min"`
 	ReplicasMax         int              `db:"replicas_max"`
 	ReplicasCurrent     int              `db:"replicas_current"`
-	GPUType             string           `db:"gpu_type"`
-	GPUCountPerReplica  int              `db:"gpu_count_per_replica"`
+
+	// Inference engine
+	Backend             string           `db:"backend"`                // vllm, sglang, trtllm
+	BackendImage        string           `db:"backend_image"`          // Container image override
+
+	// Parallelism (Dynamo disaggregated serving)
+	TensorParallelSize   int             `db:"tensor_parallel_size"`   // TP degree
+	PipelineParallelSize int             `db:"pipeline_parallel_size"` // PP degree
+
+	// Workload profile (DGDR workload)
+	InputSequenceLength  int             `db:"input_sequence_length"`  // ISL
+	OutputSequenceLength int             `db:"output_sequence_length"` // OSL
+
+	// SLA targets (DGDR sla)
+	TargetTTFTMs        float64          `db:"target_ttft_ms"`         // Time To First Token (ms)
+	TargetITLMs         float64          `db:"target_itl_ms"`          // Inter-Token Latency (ms)
+	TargetTPOTMs        float64          `db:"target_tpot_ms"`         // Time Per Output Token (ms)
+
+	// Disaggregated serving (P/D separation)
+	DisaggEnabled       bool             `db:"disagg_enabled"`
+	PrefillReplicas     int              `db:"prefill_replicas"`
+	DecodeReplicas      int              `db:"decode_replicas"`
+	SearchStrategy      string           `db:"search_strategy"`        // AIConfigurator: rapid, thorough
+
+	// Advanced
 	MaxBatchSize        int              `db:"max_batch_size"`
-	MaxSequenceLength   int              `db:"max_sequence_length"`
+	MaxSequenceLength   int              `db:"max_sequence_length"`    // Max context window
+	Dtype               string           `db:"dtype"`                  // fp16, bf16, fp8
+
+	// Runtime state
 	DynamoServiceName   string           `db:"dynamo_service_name"`
 	DynamoNamespace     string           `db:"dynamo_namespace"`
 	EndpointURL         string           `db:"endpoint_url"`
-	LiteLLMModelID      string           `db:"litellm_model_id"`  // LiteLLM model ID for cleanup on stop
+	LiteLLMModelID      string           `db:"litellm_model_id"`       // LiteLLM model ID for cleanup
 	ErrorMessage        string           `db:"error_message"`
 	DeployedAt          *time.Time       `db:"deployed_at"`
 	CreatedAt           time.Time        `db:"created_at"`
@@ -160,21 +195,60 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		}
 	}
 
+	// Default backend to vllm if not specified
+	backend := cfg.Backend
+	if backend == "" {
+		backend = "vllm"
+	}
+	tp := cfg.TensorParallelSize
+	if tp == 0 {
+		tp = 1
+	}
+	pp := cfg.PipelineParallelSize
+	if pp == 0 {
+		pp = 1
+	}
+
 	d := &Deployment{
-		ID:                uuid.New(),
-		ModelID:           modelID,
-		OrgID:             orgID,
-		Name:              cfg.Name,
-		Status:            DeploymentPending,
-		SLATier:           cfg.SLATier,
-		ReplicasMin:       cfg.ReplicasMin,
-		ReplicasMax:       cfg.ReplicasMax,
-		GPUType:           cfg.GPUType,
-		GPUCountPerReplica: cfg.GPUCountPerReplica,
-		MaxBatchSize:      cfg.MaxBatchSize,
-		MaxSequenceLength: cfg.MaxSequenceLength,
-		CreatedAt:         time.Now(),
-		UpdatedAt:         time.Now(),
+		ID:                   uuid.New(),
+		ModelID:              modelID,
+		OrgID:                orgID,
+		Name:                 cfg.Name,
+		Status:               DeploymentPending,
+		SLATier:              cfg.SLATier,
+		// Hardware
+		GPUType:              cfg.GPUType,
+		GPUCountPerReplica:   cfg.GPUCountPerReplica,
+		NumGPUsPerNode:       cfg.NumGPUsPerNode,
+		VRAMMb:               cfg.VRAMMb,
+		// Scaling
+		ReplicasMin:          cfg.ReplicasMin,
+		ReplicasMax:          cfg.ReplicasMax,
+		// Engine
+		Backend:              backend,
+		BackendImage:         cfg.BackendImage,
+		// Parallelism
+		TensorParallelSize:   tp,
+		PipelineParallelSize: pp,
+		// Workload
+		InputSequenceLength:  cfg.InputSequenceLength,
+		OutputSequenceLength: cfg.OutputSequenceLength,
+		// SLA
+		TargetTTFTMs:         cfg.TargetTTFTMs,
+		TargetITLMs:          cfg.TargetITLMs,
+		TargetTPOTMs:         cfg.TargetTPOTMs,
+		// Disaggregated
+		DisaggEnabled:        cfg.DisaggEnabled,
+		PrefillReplicas:      cfg.PrefillReplicas,
+		DecodeReplicas:       cfg.DecodeReplicas,
+		SearchStrategy:       cfg.SearchStrategy,
+		// Advanced
+		MaxBatchSize:         cfg.MaxBatchSize,
+		MaxSequenceLength:    cfg.MaxSequenceLength,
+		Dtype:                cfg.Dtype,
+		// Timestamps
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
 	}
 
 	if err := s.repo.CreateDeployment(ctx, d); err != nil {
@@ -184,13 +258,48 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 }
 
 // DeployConfig holds parameters for a new model deployment.
+// These map to NVIDIA Dynamo's DynamoGraphDeploymentRequest (DGDR) spec.
 type DeployConfig struct {
 	Name               string
 	SLATier            SLATier
-	ReplicasMin        int
-	ReplicasMax        int
-	GPUType            string
-	GPUCountPerReplica int
-	MaxBatchSize       int
-	MaxSequenceLength  int
+
+	// Hardware
+	GPUType              string  // GPU SKU: h200_sxm, h100_sxm, a100_sxm
+	GPUCountPerReplica   int     // GPUs per worker
+	NumGPUsPerNode       int     // GPUs per node (DGDR hardware.numGpusPerNode)
+	VRAMMb               int     // GPU VRAM in MiB (DGDR hardware.vramMb)
+
+	// Scaling
+	ReplicasMin          int
+	ReplicasMax          int
+
+	// Inference engine
+	Backend              string  // vllm, sglang, trtllm
+	BackendImage         string  // Container image override
+
+	// Parallelism
+	TensorParallelSize   int     // Tensor parallel degree
+	PipelineParallelSize int     // Pipeline parallel degree
+
+	// Workload profile (DGDR workload)
+	InputSequenceLength  int     // ISL — expected input tokens
+	OutputSequenceLength int     // OSL — expected output tokens
+
+	// SLA targets (DGDR sla)
+	TargetTTFTMs         float64 // Time To First Token (ms)
+	TargetITLMs          float64 // Inter-Token Latency (ms)
+	TargetTPOTMs         float64 // Time Per Output Token (ms)
+
+	// Disaggregated serving
+	DisaggEnabled        bool    // Enable prefill/decode separation
+	PrefillReplicas      int     // Prefill worker count
+	DecodeReplicas       int     // Decode worker count
+	SearchStrategy       string  // AIConfigurator: rapid or thorough
+
+	// Advanced
+	MaxBatchSize         int
+	MaxSequenceLength    int     // Max context window
+	Dtype                string  // fp16, bf16, fp8
+	AutoApply            *bool   // DGDR autoApply
+	ExtraArgs            map[string]string // Backend-specific args
 }

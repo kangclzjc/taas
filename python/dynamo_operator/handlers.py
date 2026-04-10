@@ -65,38 +65,131 @@ class DeploymentHandler:
     # ── Event handlers ──────────────────────────────────────────────────────
 
     async def _handle_deploy_requested(self, payload: dict) -> None:
-        """Create a DynamoWorker CRD in Kubernetes for the requested deployment."""
+        """Create a DynamoGraphDeploymentRequest (DGDR) CRD in Kubernetes."""
         deployment_id: str = payload["deployment_id"]
         model_id: str = payload["model_id"]
         org_id: str = payload["org_id"]
 
-        spec = {
+        # Build DGDR spec from TaaS deployment parameters
+        spec: dict = {
+            # Core identifiers
             "modelId": model_id,
             "orgId": org_id,
             "deploymentId": deployment_id,
-            "slaTier": payload.get("sla_tier", "standard"),
-            "replicas": {
-                "min": payload.get("replicas_min", 1),
-                "max": payload.get("replicas_max", 1),
-            },
-            "gpu": {
-                "type": payload.get("gpu_type", ""),
-                "countPerReplica": payload.get("gpu_count_per_replica", 1),
-            },
-            "model": {
+
+            # Model reference (HuggingFace ID or storage URI)
+            "model": payload.get("model_name", ""),
+
+            # Inference backend: vllm, sglang, trtllm
+            "backend": payload.get("backend", "vllm"),
+        }
+
+        # Container image (optional override)
+        if payload.get("backend_image"):
+            spec["image"] = payload["backend_image"]
+
+        # Hardware configuration
+        hardware: dict = {}
+        if payload.get("gpu_type"):
+            hardware["gpuSku"] = payload["gpu_type"]
+        if payload.get("num_gpus_per_node"):
+            hardware["numGpusPerNode"] = payload["num_gpus_per_node"]
+        if payload.get("vram_mb"):
+            hardware["vramMb"] = payload["vram_mb"]
+        if hardware:
+            spec["hardware"] = hardware
+
+        # Workload profile (for AIConfigurator SLA optimization)
+        workload: dict = {}
+        if payload.get("input_sequence_length"):
+            workload["isl"] = payload["input_sequence_length"]
+        if payload.get("output_sequence_length"):
+            workload["osl"] = payload["output_sequence_length"]
+        if workload:
+            spec["workload"] = workload
+
+        # SLA targets
+        sla: dict = {}
+        if payload.get("target_ttft_ms"):
+            sla["ttft"] = payload["target_ttft_ms"]
+        if payload.get("target_itl_ms"):
+            sla["itl"] = payload["target_itl_ms"]
+        if payload.get("target_tpot_ms"):
+            sla["tpot"] = payload["target_tpot_ms"]
+        if sla:
+            spec["sla"] = sla
+
+        # AIConfigurator search strategy
+        if payload.get("search_strategy"):
+            spec["searchStrategy"] = payload["search_strategy"]
+
+        # Auto-apply: automatically create DGD after profiling (default: true)
+        spec["autoApply"] = payload.get("auto_apply", True)
+
+        # Scaling / replicas (for manual DGD, used when disagg is explicit)
+        replicas: dict = {
+            "min": payload.get("replicas_min", 1),
+            "max": payload.get("replicas_max", payload.get("replicas_min", 1)),
+        }
+
+        # Disaggregated serving (prefill/decode separation)
+        disagg_enabled = payload.get("disagg_enabled", False)
+        if disagg_enabled:
+            spec["disaggregated"] = {
+                "enabled": True,
+                "prefillReplicas": payload.get("prefill_replicas", 1),
+                "decodeReplicas": payload.get("decode_replicas", 1),
+            }
+
+        # Parallelism
+        parallelism: dict = {}
+        if payload.get("tensor_parallel_size", 1) > 1:
+            parallelism["tensorParallelSize"] = payload["tensor_parallel_size"]
+        if payload.get("pipeline_parallel_size", 1) > 1:
+            parallelism["pipelineParallelSize"] = payload["pipeline_parallel_size"]
+        if parallelism:
+            spec["parallelism"] = parallelism
+
+        # Advanced inference settings
+        inference: dict = {}
+        if payload.get("max_batch_size"):
+            inference["maxBatchSize"] = payload["max_batch_size"]
+        if payload.get("max_sequence_length"):
+            inference["maxSequenceLength"] = payload["max_sequence_length"]
+        if payload.get("dtype"):
+            inference["dtype"] = payload["dtype"]
+        if inference:
+            spec["inference"] = inference
+
+        # Legacy fields for backward compat
+        spec["slaTier"] = payload.get("sla_tier", "standard")
+        spec["replicas"] = replicas
+
+        # GPU per worker
+        if payload.get("gpu_count_per_replica"):
+            spec.setdefault("gpu", {})["countPerReplica"] = payload["gpu_count_per_replica"]
+
+        # Model storage info (for non-HuggingFace models)
+        if payload.get("storage_uri") or payload.get("framework") or payload.get("format"):
+            spec["modelStorage"] = {
                 "storageUri": payload.get("storage_uri", ""),
                 "framework": payload.get("framework", ""),
                 "format": payload.get("format", ""),
-            },
-            "inference": {
-                "maxBatchSize": payload.get("max_batch_size", 0),
-                "maxSequenceLength": payload.get("max_sequence_length", 0),
-            },
-        }
+            }
+
+        # Extra backend-specific args
+        if payload.get("extra_args"):
+            spec["extraArgs"] = payload["extra_args"]
 
         logger.info(
-            "Creating DynamoWorker CRD",
-            extra={"deployment_id": deployment_id, "model_id": model_id},
+            "Creating DGDR CRD",
+            extra={
+                "deployment_id": deployment_id,
+                "model": spec.get("model"),
+                "backend": spec.get("backend"),
+                "disagg": disagg_enabled,
+                "gpu_sku": hardware.get("gpuSku", "auto"),
+            },
         )
         await self._k8s.create_dynamo_worker(
             name=f"deploy-{deployment_id}",

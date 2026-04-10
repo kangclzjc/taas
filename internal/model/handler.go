@@ -43,12 +43,46 @@ type createModelRequest struct {
 type deployModelRequest struct {
 	Name               string  `json:"name" binding:"required"`
 	SLATier            SLATier `json:"sla_tier"`
+
+	// ── Hardware ───────────────────────────────────────────────
+	GPUType            string  `json:"gpu_type"`               // GPU SKU: h200_sxm, h100_sxm, a100_sxm, etc.
+	GPUCountPerReplica int     `json:"gpu_count_per_replica"`   // GPUs per worker replica
+	NumGPUsPerNode     int     `json:"num_gpus_per_node"`       // GPUs per node (for DGDR hardware spec)
+	VRAMMb             int     `json:"vram_mb,omitempty"`       // GPU VRAM in MiB (auto-detected if omitted)
+
+	// ── Scaling ────────────────────────────────────────────────
 	ReplicasMin        int     `json:"replicas_min"`
 	ReplicasMax        int     `json:"replicas_max"`
-	GPUType            string  `json:"gpu_type"`
-	GPUCountPerReplica int     `json:"gpu_count_per_replica"`
+
+	// ── Inference Engine ───────────────────────────────────────
+	Backend            string  `json:"backend"`                 // vllm, sglang, trtllm (default: vllm)
+	BackendImage       string  `json:"backend_image,omitempty"` // Container image override
+
+	// ── Parallelism (Dynamo disaggregated serving) ─────────────
+	TensorParallelSize   int   `json:"tensor_parallel_size,omitempty"`   // TP degree (default: 1)
+	PipelineParallelSize int   `json:"pipeline_parallel_size,omitempty"` // PP degree (default: 1)
+
+	// ── Workload Profile (for DGDR SLA optimization) ──────────
+	InputSequenceLength  int   `json:"input_sequence_length,omitempty"`  // Expected input token length (ISL)
+	OutputSequenceLength int   `json:"output_sequence_length,omitempty"` // Expected output token length (OSL)
+
+	// ── SLA Targets (for DGDR auto-configuration) ─────────────
+	TargetTTFTMs       float64 `json:"target_ttft_ms,omitempty"`  // Time To First Token target (ms)
+	TargetITLMs        float64 `json:"target_itl_ms,omitempty"`   // Inter-Token Latency target (ms)
+	TargetTPOTMs       float64 `json:"target_tpot_ms,omitempty"`  // Time Per Output Token target (ms)
+
+	// ── Disaggregated Serving ─────────────────────────────────
+	DisaggEnabled      bool    `json:"disagg_enabled,omitempty"`  // Enable prefill/decode disaggregation
+	PrefillReplicas    int     `json:"prefill_replicas,omitempty"` // Number of prefill workers
+	DecodeReplicas     int     `json:"decode_replicas,omitempty"`  // Number of decode workers
+	SearchStrategy     string  `json:"search_strategy,omitempty"` // AIConfigurator strategy: rapid, thorough
+
+	// ── Advanced ──────────────────────────────────────────────
 	MaxBatchSize       int     `json:"max_batch_size"`
-	MaxSequenceLength  int     `json:"max_sequence_length"`
+	MaxSequenceLength  int     `json:"max_sequence_length"`      // Max context window
+	Dtype              string  `json:"dtype,omitempty"`           // fp16, bf16, fp8 (default: auto)
+	AutoApply          *bool   `json:"auto_apply,omitempty"`     // DGDR autoApply (default: true)
+	ExtraArgs          map[string]string `json:"extra_args,omitempty"` // Additional backend-specific args
 }
 
 type shareModelRequest struct {
@@ -202,14 +236,40 @@ func (h *Handler) DeployModel(c *gin.Context) {
 	}
 
 	d, err := h.svc.Deploy(c.Request.Context(), modelID, oid, DeployConfig{
-		Name:               req.Name,
-		SLATier:            req.SLATier,
-		ReplicasMin:        req.ReplicasMin,
-		ReplicasMax:        req.ReplicasMax,
-		GPUType:            req.GPUType,
-		GPUCountPerReplica: req.GPUCountPerReplica,
-		MaxBatchSize:       req.MaxBatchSize,
-		MaxSequenceLength:  req.MaxSequenceLength,
+		Name:                 req.Name,
+		SLATier:              req.SLATier,
+		// Hardware
+		GPUType:              req.GPUType,
+		GPUCountPerReplica:   req.GPUCountPerReplica,
+		NumGPUsPerNode:       req.NumGPUsPerNode,
+		VRAMMb:               req.VRAMMb,
+		// Scaling
+		ReplicasMin:          req.ReplicasMin,
+		ReplicasMax:          req.ReplicasMax,
+		// Inference engine
+		Backend:              req.Backend,
+		BackendImage:         req.BackendImage,
+		// Parallelism
+		TensorParallelSize:   req.TensorParallelSize,
+		PipelineParallelSize: req.PipelineParallelSize,
+		// Workload profile
+		InputSequenceLength:  req.InputSequenceLength,
+		OutputSequenceLength: req.OutputSequenceLength,
+		// SLA targets
+		TargetTTFTMs:         req.TargetTTFTMs,
+		TargetITLMs:          req.TargetITLMs,
+		TargetTPOTMs:         req.TargetTPOTMs,
+		// Disaggregated serving
+		DisaggEnabled:        req.DisaggEnabled,
+		PrefillReplicas:      req.PrefillReplicas,
+		DecodeReplicas:       req.DecodeReplicas,
+		SearchStrategy:       req.SearchStrategy,
+		// Advanced
+		MaxBatchSize:         req.MaxBatchSize,
+		MaxSequenceLength:    req.MaxSequenceLength,
+		Dtype:                req.Dtype,
+		AutoApply:            req.AutoApply,
+		ExtraArgs:            req.ExtraArgs,
 	})
 	if err != nil {
 		h.logger.Error("deploying model", zap.Error(err))
