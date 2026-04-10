@@ -44,6 +44,13 @@ type deployModelRequest struct {
 	Name               string  `json:"name" binding:"required"`
 	SLATier            SLATier `json:"sla_tier"`
 
+	// ── Deploy Mode ────────────────────────────────────────────
+	// "dgdr" (default): DynamoGraphDeploymentRequest — SLA-driven, auto-profiling, auto-config.
+	//   Dynamo runs AIConfigurator to find optimal config, then deploys. Slower but optimal.
+	// "dgd": DynamoGraphDeployment — Direct deploy with explicit config. No profiling.
+	//   User must specify exact replicas, TP/PP, image, etc. Fast but requires expertise.
+	DeployMode         string  `json:"deploy_mode"`             // "dgdr" (default) or "dgd"
+
 	// ── Hardware ───────────────────────────────────────────────
 	GPUType            string  `json:"gpu_type"`               // GPU SKU: h200_sxm, h100_sxm, a100_sxm, etc.
 	GPUCountPerReplica int     `json:"gpu_count_per_replica"`   // GPUs per worker replica
@@ -76,6 +83,14 @@ type deployModelRequest struct {
 	PrefillReplicas    int     `json:"prefill_replicas,omitempty"` // Number of prefill workers
 	DecodeReplicas     int     `json:"decode_replicas,omitempty"`  // Number of decode workers
 	SearchStrategy     string  `json:"search_strategy,omitempty"` // AIConfigurator strategy: rapid, thorough
+
+	// ── DGD-specific (direct deploy) ──────────────────────────
+	// These are only used when deploy_mode = "dgd".
+	FrontendReplicas   int     `json:"frontend_replicas,omitempty"` // Frontend HTTP server replicas
+	WorkerCommand      string  `json:"worker_command,omitempty"`    // Custom worker command override
+	DynamoNamespace    string  `json:"dynamo_namespace,omitempty"`  // Dynamo service discovery namespace
+	RouterMode         string  `json:"router_mode,omitempty"`       // "random" or "kv" (KV-aware routing)
+	EnvVars            map[string]string `json:"env_vars,omitempty"` // Extra env vars for workers
 
 	// ── Advanced ──────────────────────────────────────────────
 	MaxBatchSize       int     `json:"max_batch_size"`
@@ -235,9 +250,20 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		req.ReplicasMax = req.ReplicasMin
 	}
 
+	// Default deploy mode
+	deployMode := req.DeployMode
+	if deployMode == "" {
+		deployMode = "dgdr"
+	}
+	if deployMode != "dgdr" && deployMode != "dgd" {
+		middleware.ErrorResponse(c, taasErrors.BadRequest("deploy_mode must be 'dgdr' or 'dgd'"))
+		return
+	}
+
 	d, err := h.svc.Deploy(c.Request.Context(), modelID, oid, DeployConfig{
 		Name:                 req.Name,
 		SLATier:              req.SLATier,
+		DeployMode:           deployMode,
 		// Hardware
 		GPUType:              req.GPUType,
 		GPUCountPerReplica:   req.GPUCountPerReplica,
@@ -264,6 +290,12 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		PrefillReplicas:      req.PrefillReplicas,
 		DecodeReplicas:       req.DecodeReplicas,
 		SearchStrategy:       req.SearchStrategy,
+		// DGD-specific
+		FrontendReplicas:     req.FrontendReplicas,
+		WorkerCommand:        req.WorkerCommand,
+		DynamoNamespace:      req.DynamoNamespace,
+		RouterMode:           req.RouterMode,
+		EnvVars:              req.EnvVars,
 		// Advanced
 		MaxBatchSize:         req.MaxBatchSize,
 		MaxSequenceLength:    req.MaxSequenceLength,

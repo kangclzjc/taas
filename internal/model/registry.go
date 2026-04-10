@@ -80,6 +80,7 @@ type Deployment struct {
 	Name                string           `db:"name"`
 	Status              DeploymentStatus `db:"status"`
 	SLATier             SLATier          `db:"sla_tier"`
+	DeployMode          string           `db:"deploy_mode"`            // "dgdr" or "dgd"
 
 	// Hardware
 	GPUType             string           `db:"gpu_type"`               // GPU SKU: h200_sxm, h100_sxm, a100_sxm
@@ -114,6 +115,12 @@ type Deployment struct {
 	PrefillReplicas     int              `db:"prefill_replicas"`
 	DecodeReplicas      int              `db:"decode_replicas"`
 	SearchStrategy      string           `db:"search_strategy"`        // AIConfigurator: rapid, thorough
+
+	// DGD-specific (direct deploy, no profiling)
+	FrontendReplicas    int              `db:"frontend_replicas"`      // Frontend HTTP replicas
+	WorkerCommand       string           `db:"worker_command"`         // Custom worker command
+	DynamoNS            string           `db:"dynamo_ns"`              // Dynamo service discovery namespace
+	RouterMode          string           `db:"router_mode"`            // "random" or "kv"
 
 	// Advanced
 	MaxBatchSize        int              `db:"max_batch_size"`
@@ -216,6 +223,7 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		Name:                 cfg.Name,
 		Status:               DeploymentPending,
 		SLATier:              cfg.SLATier,
+		DeployMode:           cfg.DeployMode,
 		// Hardware
 		GPUType:              cfg.GPUType,
 		GPUCountPerReplica:   cfg.GPUCountPerReplica,
@@ -242,6 +250,11 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		PrefillReplicas:      cfg.PrefillReplicas,
 		DecodeReplicas:       cfg.DecodeReplicas,
 		SearchStrategy:       cfg.SearchStrategy,
+		// DGD-specific
+		FrontendReplicas:     cfg.FrontendReplicas,
+		WorkerCommand:        cfg.WorkerCommand,
+		DynamoNS:             cfg.DynamoNamespace,
+		RouterMode:           cfg.RouterMode,
 		// Advanced
 		MaxBatchSize:         cfg.MaxBatchSize,
 		MaxSequenceLength:    cfg.MaxSequenceLength,
@@ -258,16 +271,19 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 }
 
 // DeployConfig holds parameters for a new model deployment.
-// These map to NVIDIA Dynamo's DynamoGraphDeploymentRequest (DGDR) spec.
+// These map to NVIDIA Dynamo's CRDs:
+//   - deploy_mode "dgdr" → DynamoGraphDeploymentRequest (auto-profiling, SLA-driven)
+//   - deploy_mode "dgd"  → DynamoGraphDeployment (direct deploy, explicit config)
 type DeployConfig struct {
 	Name               string
 	SLATier            SLATier
+	DeployMode         string  // "dgdr" (auto-profile) or "dgd" (direct deploy)
 
 	// Hardware
-	GPUType              string  // GPU SKU: h200_sxm, h100_sxm, a100_sxm
-	GPUCountPerReplica   int     // GPUs per worker
-	NumGPUsPerNode       int     // GPUs per node (DGDR hardware.numGpusPerNode)
-	VRAMMb               int     // GPU VRAM in MiB (DGDR hardware.vramMb)
+	GPUType              string
+	GPUCountPerReplica   int
+	NumGPUsPerNode       int
+	VRAMMb               int
 
 	// Scaling
 	ReplicasMin          int
@@ -275,31 +291,38 @@ type DeployConfig struct {
 
 	// Inference engine
 	Backend              string  // vllm, sglang, trtllm
-	BackendImage         string  // Container image override
+	BackendImage         string
 
 	// Parallelism
-	TensorParallelSize   int     // Tensor parallel degree
-	PipelineParallelSize int     // Pipeline parallel degree
+	TensorParallelSize   int
+	PipelineParallelSize int
 
-	// Workload profile (DGDR workload)
-	InputSequenceLength  int     // ISL — expected input tokens
-	OutputSequenceLength int     // OSL — expected output tokens
+	// Workload profile (DGDR only)
+	InputSequenceLength  int
+	OutputSequenceLength int
 
-	// SLA targets (DGDR sla)
-	TargetTTFTMs         float64 // Time To First Token (ms)
-	TargetITLMs          float64 // Inter-Token Latency (ms)
-	TargetTPOTMs         float64 // Time Per Output Token (ms)
+	// SLA targets (DGDR only)
+	TargetTTFTMs         float64
+	TargetITLMs          float64
+	TargetTPOTMs         float64
 
 	// Disaggregated serving
-	DisaggEnabled        bool    // Enable prefill/decode separation
-	PrefillReplicas      int     // Prefill worker count
-	DecodeReplicas       int     // Decode worker count
+	DisaggEnabled        bool
+	PrefillReplicas      int
+	DecodeReplicas       int
 	SearchStrategy       string  // AIConfigurator: rapid or thorough
+
+	// DGD-specific (direct deploy)
+	FrontendReplicas     int               // Frontend HTTP replicas
+	WorkerCommand        string            // Custom worker cmd override
+	DynamoNamespace      string            // Dynamo service discovery namespace
+	RouterMode           string            // "random" or "kv"
+	EnvVars              map[string]string  // Extra env vars for workers
 
 	// Advanced
 	MaxBatchSize         int
-	MaxSequenceLength    int     // Max context window
-	Dtype                string  // fp16, bf16, fp8
-	AutoApply            *bool   // DGDR autoApply
-	ExtraArgs            map[string]string // Backend-specific args
+	MaxSequenceLength    int
+	Dtype                string
+	AutoApply            *bool
+	ExtraArgs            map[string]string
 }
