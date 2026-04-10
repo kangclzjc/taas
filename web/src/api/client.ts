@@ -148,18 +148,67 @@ export interface Model {
 }
 
 export interface DeploymentConfig {
-  replicas_min: number; replicas_max: number;
-  gpu_type: string; sla_tier: 'standard' | 'professional' | 'enterprise';
-  max_batch_size: number; max_sequence_length: number;
+  name: string;
+  deploy_mode: 'dgdr' | 'dgd';
+  sla_tier?: 'standard' | 'professional' | 'enterprise';
+  // Hardware
+  gpu_type?: string;
+  gpu_count_per_replica?: number;
+  num_gpus_per_node?: number;
+  vram_mb?: number;
+  // Scaling
+  replicas_min?: number;
+  replicas_max?: number;
+  // Engine
+  backend?: 'vllm' | 'sglang' | 'trtllm';
+  backend_image?: string;
+  // Parallelism
+  tensor_parallel_size?: number;
+  pipeline_parallel_size?: number;
+  // Workload (DGDR)
+  input_sequence_length?: number;
+  output_sequence_length?: number;
+  // SLA (DGDR)
+  target_ttft_ms?: number;
+  target_itl_ms?: number;
+  target_tpot_ms?: number;
+  search_strategy?: 'rapid' | 'thorough';
+  // Disaggregated
+  disagg_enabled?: boolean;
+  prefill_replicas?: number;
+  decode_replicas?: number;
+  // DGD-specific
+  frontend_replicas?: number;
+  worker_command?: string;
+  dynamo_namespace?: string;
+  router_mode?: 'random' | 'kv';
+  env_vars?: Record<string, string>;
+  // Advanced
+  max_batch_size?: number;
+  max_sequence_length?: number;
+  dtype?: string;
+  extra_args?: Record<string, string>;
 }
 
 export interface Deployment {
   id: string;
   model_id: string;
+  name: string;
   status: string;
-  replicas: number;
+  deploy_mode: string;
+  backend: string;
   gpu_type: string;
+  gpu_count_per_replica: number;
+  tensor_parallel_size: number;
+  pipeline_parallel_size: number;
+  disagg_enabled: boolean;
+  prefill_replicas: number;
+  decode_replicas: number;
+  replicas_min: number;
+  replicas_max: number;
+  replicas_current: number;
   endpoint_url: string | null;
+  error_message: string;
   created_at: string;
 }
 

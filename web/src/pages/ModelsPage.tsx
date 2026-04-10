@@ -7,10 +7,13 @@ import EmptyState from '../components/EmptyState';
 import { useToast } from '../components/Toast';
 
 const defaultDeployConfig: DeploymentConfig = {
+  name: 'quick-deploy',
+  deploy_mode: 'dgdr',
   replicas_min: 1,
   replicas_max: 3,
-  gpu_type: 'a100',
+  gpu_type: 'a100_sxm',
   sla_tier: 'standard',
+  backend: 'vllm',
   max_batch_size: 32,
   max_sequence_length: 2048,
 };

@@ -3,27 +3,20 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { models, type DeploymentConfig } from '../api/client';
 import { useToast } from '../components/Toast';
-
-const defaultDeployConfig: DeploymentConfig = {
-  replicas_min: 1,
-  replicas_max: 3,
-  gpu_type: 'a100',
-  sla_tier: 'standard',
-  max_batch_size: 32,
-  max_sequence_length: 2048,
-};
+import DeployForm from '../components/DeployForm';
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
-    deployed: 'badge-success',
-    deploying: 'badge-warning',
-    undeployed: 'badge-neutral',
-    failed: 'badge-danger',
-    running: 'badge-success',
-    stopped: 'badge-neutral',
+    deployed: 'badge-success', deploying: 'badge-warning', undeployed: 'badge-neutral',
+    failed: 'badge-danger', running: 'badge-success', stopped: 'badge-neutral',
     pending: 'badge-warning',
   };
   return <span className={`badge ${map[status] ?? 'badge-neutral'}`}>{status}</span>;
+}
+
+function modeBadge(mode: string) {
+  if (mode === 'dgd') return <span className="badge badge-info" title="Direct deploy, no profiling">⚡ DGD</span>;
+  return <span className="badge badge-warning" title="Auto-profiling, SLA-driven">🔬 DGDR</span>;
 }
 
 function formatParams(n: number) {
@@ -51,39 +44,23 @@ export default function ModelDetailPage() {
   });
 
   const deployMutation = useMutation({
-    mutationFn: () => models.deploy(id!, defaultDeployConfig),
+    mutationFn: (config: DeploymentConfig) => models.deploy(id!, config),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['model', id] });
       queryClient.invalidateQueries({ queryKey: ['model-deployments', id] });
-      addToast('Model deployment started successfully', 'success');
+      addToast('Deployment started successfully!', 'success');
       setShowDeployForm(false);
     },
-    onError: () => {
-      addToast('Failed to deploy model', 'error');
-    },
-  });
-
-  const undeployMutation = useMutation({
-    mutationFn: () => models.undeploy(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['model', id] });
-      queryClient.invalidateQueries({ queryKey: ['model-deployments', id] });
-      addToast('Model undeployed successfully', 'success');
-    },
-    onError: () => {
-      addToast('Failed to undeploy model', 'error');
+    onError: (err: any) => {
+      addToast(`Failed to deploy: ${err.message ?? 'unknown error'}`, 'error');
     },
   });
 
   if (modelLoading) {
     return (
       <div>
-        <div className="page-header">
-          <h1 className="page-title">Model Details</h1>
-        </div>
-        <div className="card" style={{ padding: 24 }}>
-          <p className="text-muted">Loading…</p>
-        </div>
+        <div className="page-header"><h1 className="page-title">Model Details</h1></div>
+        <div className="card" style={{ padding: 24 }}><p className="text-muted">Loading…</p></div>
       </div>
     );
   }
@@ -91,20 +68,37 @@ export default function ModelDetailPage() {
   if (!model) {
     return (
       <div>
-        <div className="page-header">
-          <h1 className="page-title">Model Not Found</h1>
-        </div>
+        <div className="page-header"><h1 className="page-title">Model Not Found</h1></div>
         <div className="card" style={{ padding: 24 }}>
           <p>The requested model could not be found.</p>
-          <Link to="/models" className="btn btn-primary" style={{ marginTop: 12 }}>
-            ← Back to Models
-          </Link>
+          <Link to="/models" className="btn btn-primary" style={{ marginTop: 12 }}>← Back to Models</Link>
         </div>
       </div>
     );
   }
 
   const deployments = deploymentsData?.deployments ?? [];
+
+  // Show deploy form
+  if (showDeployForm) {
+    return (
+      <div>
+        <div className="page-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button className="btn btn-sm" onClick={() => setShowDeployForm(false)}>← Back</button>
+            <h1 className="page-title" style={{ margin: 0 }}>Deploy {model.name}</h1>
+          </div>
+        </div>
+        <DeployForm
+          modelName={model.name}
+          modelSlug={(model as any).slug ?? model.name.toLowerCase().replace(/\s+/g, '-')}
+          onSubmit={(config) => deployMutation.mutate(config)}
+          onCancel={() => setShowDeployForm(false)}
+          isSubmitting={deployMutation.isPending}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -117,24 +111,9 @@ export default function ModelDetailPage() {
           {statusBadge(model.status)}
         </div>
         <div className="actions-row">
-          {(model.status === 'undeployed' || model.status === 'failed') && (
-            <button
-              className="btn btn-primary"
-              onClick={() => deployMutation.mutate()}
-              disabled={deployMutation.isPending}
-            >
-              {deployMutation.isPending ? 'Deploying…' : '🚀 Deploy'}
-            </button>
-          )}
-          {model.status === 'deployed' && (
-            <button
-              className="btn btn-danger"
-              onClick={() => undeployMutation.mutate()}
-              disabled={undeployMutation.isPending}
-            >
-              {undeployMutation.isPending ? 'Stopping…' : '⏹ Undeploy'}
-            </button>
-          )}
+          <button className="btn btn-primary" onClick={() => setShowDeployForm(true)}>
+            🚀 New Deployment
+          </button>
         </div>
       </div>
 
@@ -148,8 +127,6 @@ export default function ModelDetailPage() {
           <span>{model.description || '—'}</span>
           <span className="text-muted">Framework</span>
           <span>{model.framework}</span>
-          <span className="text-muted">Format</span>
-          <span className="text-mono">{model.format}</span>
           <span className="text-muted">Parameters</span>
           <span>{formatParams(model.parameter_count)}</span>
           <span className="text-muted">Context Length</span>
@@ -163,56 +140,74 @@ export default function ModelDetailPage() {
         </div>
       </div>
 
-      {/* Deployments */}
+      {/* Deployments Table */}
       <div className="card">
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Deployments</h2>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowDeployForm(true)}>
+            + Deploy
+          </button>
         </div>
         <div className="table-wrapper">
           {deploymentsLoading ? (
-            <div style={{ padding: 24 }}>
-              <p className="text-muted">Loading deployments…</p>
-            </div>
+            <div style={{ padding: 24 }}><p className="text-muted">Loading deployments…</p></div>
           ) : deployments.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center' }}>
-              <p className="text-muted" style={{ marginBottom: 12 }}>No deployments for this model.</p>
-              {(model.status === 'undeployed' || model.status === 'failed') && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => deployMutation.mutate()}
-                  disabled={deployMutation.isPending}
-                >
-                  Deploy Now
-                </button>
-              )}
+              <p className="text-muted" style={{ marginBottom: 12 }}>No deployments yet.</p>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowDeployForm(true)}>
+                Create First Deployment
+              </button>
             </div>
           ) : (
             <table>
               <thead>
                 <tr>
-                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Mode</th>
+                  <th>Backend</th>
                   <th>Status</th>
-                  <th>Replicas</th>
-                  <th>GPU Type</th>
-                  <th>Endpoint URL</th>
+                  <th>GPU</th>
+                  <th>Topology</th>
+                  <th>Endpoint</th>
                   <th>Created</th>
                 </tr>
               </thead>
               <tbody>
-                {deployments.map((dep) => (
+                {deployments.map((dep: any) => (
                   <tr key={dep.id}>
-                    <td className="text-mono" style={{ fontSize: 13 }}>{dep.id.slice(0, 8)}…</td>
+                    <td style={{ fontWeight: 500 }}>{dep.name || dep.id.slice(0, 8)}</td>
+                    <td>{modeBadge(dep.deploy_mode || 'dgdr')}</td>
+                    <td><span className="badge badge-neutral">{dep.backend || 'vllm'}</span></td>
                     <td>{statusBadge(dep.status)}</td>
-                    <td>{dep.replicas}</td>
-                    <td>{dep.gpu_type}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {dep.gpu_type || '—'}
+                      {dep.gpu_count_per_replica > 0 && ` ×${dep.gpu_count_per_replica}`}
+                    </td>
+                    <td style={{ fontSize: 13 }}>
+                      {dep.disagg_enabled ? (
+                        <span title="Disaggregated: prefill/decode separation">
+                          P{dep.prefill_replicas || 1}/D{dep.decode_replicas || 1}
+                          {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
+                        </span>
+                      ) : (
+                        <span>
+                          ×{dep.replicas_current || dep.replicas_min || 1}
+                          {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
+                        </span>
+                      )}
+                    </td>
                     <td>
                       {dep.endpoint_url ? (
-                        <code style={{ fontSize: 12 }}>{dep.endpoint_url}</code>
+                        <code style={{ fontSize: 11 }}>{dep.endpoint_url}</code>
+                      ) : dep.error_message ? (
+                        <span className="text-danger" style={{ fontSize: 12 }} title={dep.error_message}>
+                          ⚠ {dep.error_message.slice(0, 30)}…
+                        </span>
                       ) : (
                         <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td>{new Date(dep.created_at).toLocaleDateString()}</td>
+                    <td style={{ fontSize: 13 }}>{new Date(dep.created_at).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
