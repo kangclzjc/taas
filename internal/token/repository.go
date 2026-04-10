@@ -20,6 +20,7 @@ type TokenRepository interface {
 	Revoke(ctx context.Context, id uuid.UUID) error
 	UpdateHash(ctx context.Context, id uuid.UUID, newHash, newPrefix string) error
 	LookupForValidation(ctx context.Context, hash string) (*CachedTokenInfo, error)
+	SetLiteLLMKeyToken(ctx context.Context, id uuid.UUID, litellmKeyToken string) error
 }
 
 // Token represents an API token stored in the database.
@@ -37,11 +38,12 @@ type Token struct {
 	RateLimitTPM   int        `json:"rate_limit_tpm"`
 	BudgetLimitUSD float64    `json:"budget_limit_usd"`
 	SLATier        string     `json:"sla_tier"`
-	IsActive       bool       `json:"is_active"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt     *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	IsActive        bool       `json:"is_active"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
+	LiteLLMKeyToken string     `json:"litellm_key_token,omitempty"` // LiteLLM virtual key hash (for sync)
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // Repository handles token persistence in PostgreSQL.
@@ -144,6 +146,14 @@ func (r *Repository) UpdateHash(ctx context.Context, id uuid.UUID, newHash, newP
 	_, err := r.db.Exec(ctx,
 		`UPDATE api_tokens SET token_hash = $1, prefix = $2, updated_at = NOW() WHERE id = $3`,
 		newHash, newPrefix, id)
+	return err
+}
+
+// SetLiteLLMKeyToken stores the LiteLLM virtual key token hash for a TaaS token.
+func (r *Repository) SetLiteLLMKeyToken(ctx context.Context, id uuid.UUID, litellmKeyToken string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE api_tokens SET litellm_key_token = $1, updated_at = NOW() WHERE id = $2`,
+		litellmKeyToken, id)
 	return err
 }
 

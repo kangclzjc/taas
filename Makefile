@@ -15,7 +15,7 @@ REGISTRY    ?= ghcr.io/taas-platform
 TAG         ?= $(VERSION)
 
 # Services
-SERVICES    := gateway auth token-manager billing
+SERVICES    := gateway auth token-manager billing dynamo-bridge
 
 # Tools
 GOLANGCI    := golangci-lint

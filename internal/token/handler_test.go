@@ -118,6 +118,14 @@ func (m *mockTokenRepo) LookupForValidation(_ context.Context, hash string) (*Ca
 	return nil, nil
 }
 
+func (m *mockTokenRepo) SetLiteLLMKeyToken(_ context.Context, id uuid.UUID, litellmKeyToken string) error {
+	if t, ok := m.tokens[id]; ok {
+		t.LiteLLMKeyToken = litellmKeyToken
+		return nil
+	}
+	return fmt.Errorf("token not found")
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

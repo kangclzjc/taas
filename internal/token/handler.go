@@ -14,7 +14,7 @@ import (
 
 // Handler holds token management HTTP handlers.
 type Handler struct {
-	svc    *Service
+	svc    TokenService // interface: supports both base Service and LiteLLM-enhanced Service
 	logger *zap.Logger
 }
 

@@ -1,0 +1,85 @@
+# LiteLLM Proxy Configuration for TaaS
+# This replaces the custom Go proxy layer with LiteLLM's battle-tested gateway.
+#
+# Docs: https://docs.litellm.ai/docs/proxy/configs
+
+# ─── Model Definitions ──────────────────────────────────────────────
+# All models route to the TaaS Dynamo Bridge, which injects tenant
+# metadata headers before forwarding to NVIDIA Dynamo.
+model_list:
+  - model_name: llama-3-8b
+    litellm_params:
+      model: openai/llama-3-8b
+      api_base: http://taas-dynamo-bridge:8090/v1
+      api_key: "internal-bridge-key"   # Bridge validates via shared secret
+      rpm: 600          # requests per minute (default, overridable per key)
+      tpm: 1000000      # tokens per minute
+      input_cost_per_token: 0.0000001   # $0.10 / 1M tokens
+      output_cost_per_token: 0.0000002  # $0.20 / 1M tokens
+
+  - model_name: llama-3-70b
+    litellm_params:
+      model: openai/llama-3-70b
+      api_base: http://taas-dynamo-bridge:8090/v1
+      api_key: "internal-bridge-key"
+      rpm: 300
+      tpm: 500000
+      input_cost_per_token: 0.0000005   # $0.50 / 1M tokens
+      output_cost_per_token: 0.000001   # $1.00 / 1M tokens
+
+  - model_name: mistral-7b
+    litellm_params:
+      model: openai/mistral-7b
+      api_base: http://taas-dynamo-bridge:8090/v1
+      api_key: "internal-bridge-key"
+      rpm: 600
+      tpm: 1000000
+      input_cost_per_token: 0.0000001
+      output_cost_per_token: 0.0000002
+
+  - model_name: mixtral-8x7b
+    litellm_params:
+      model: openai/mixtral-8x7b
+      api_base: http://taas-dynamo-bridge:8090/v1
+      api_key: "internal-bridge-key"
+      rpm: 300
+      tpm: 500000
+      input_cost_per_token: 0.0000004
+      output_cost_per_token: 0.0000008
+
+# ─── General Settings ────────────────────────────────────────────────
+general_settings:
+  master_key: "${LITELLM_MASTER_KEY}"       # Admin API key
+  database_url: "${DATABASE_URL}"            # Shared PostgreSQL with TaaS
+  alerting:
+    - slack
+  store_model_in_db: true
+
+litellm_settings:
+  # Enable virtual keys for multi-tenant API key management
+  set_verbose: false
+  drop_params: true        # Drop unsupported params instead of erroring
+  cache: true
+  cache_params:
+    type: redis
+    host: "${REDIS_HOST:-redis}"
+    port: "${REDIS_PORT:-6379}"
+    password: "${REDIS_PASSWORD:-}"
+
+  # Webhook callback: push usage data to TaaS billing system
+  success_callback: ["webhook"]
+  failure_callback: ["webhook"]
+  callbacks:
+    webhook:
+      webhook_url: "http://taas-gateway:8080/webhooks/litellm"
+      webhook_headers:
+        Authorization: "Bearer ${LITELLM_WEBHOOK_SECRET}"
+
+# ─── Router Settings ────────────────────────────────────────────────
+router_settings:
+  routing_strategy: "least-busy"   # Distribute across Dynamo instances
+  num_retries: 2
+  timeout: 120                     # Match Dynamo's 120s timeout
+  retry_after: 5
+  allowed_fails: 3                 # Mark deployment unhealthy after 3 fails
+  cooldown_time: 60                # Cooldown before retrying failed deployment
