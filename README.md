@@ -140,7 +140,7 @@ without touching TaaS Go services.
 | **Sign in** — JWT cookie auth, with self-service registration link | ![Sign in](docs/images/login.png) |
 | **Dashboard** — per-org usage, request counts, spend, active tokens | ![Dashboard](docs/images/dashboard.png) |
 | **Models** — list + filter; per-row Deploy / Delete actions | ![Models](docs/images/models.png) |
-| **Deploy a model** — DGDR (auto-optimize) vs DGD (direct deploy), backend (vLLM/SGLang/TRT-LLM), GPU type, TP/PP, replicas — translated to NVIDIA DGD CR | ![Deploy form](docs/images/deploy-form.png) |
+| **Deploy a model** — full form: DGDR vs DGD mode, inference engine (vLLM/SGLang/TRT-LLM), hardware (GPU type, GPUs/replica, GPUs/node), TP/PP, scaling, SLA targets + workload profile (DGDR), disaggregated serving toggle, advanced (max batch / seq / dtype) — all translated to a NVIDIA DGD CR | ![Deploy form](docs/images/deploy-form.png) |
 | **API Tokens** — TaaS-issued, synced to LiteLLM as virtual keys with per-key budget / RPM | ![API Tokens](docs/images/tokens.png) |
 
 > Screenshots are kept in [`docs/images/`](docs/images/). Some pages
