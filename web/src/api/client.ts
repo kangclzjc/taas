@@ -142,39 +142,151 @@ export const auth = {
 
 export interface Model {
   id: string; name: string; description: string;
+  slug?: string;
+  storage_uri?: string;
   framework: string; format: string; status: string;
   is_public: boolean; parameter_count: number;
   context_length: number; created_at: string;
 }
 
 export interface DeploymentConfig {
-  replicas_min: number; replicas_max: number;
-  gpu_type: string; sla_tier: 'standard' | 'professional' | 'enterprise';
-  max_batch_size: number; max_sequence_length: number;
+  name: string;
+  deploy_mode: 'dgdr' | 'dgd';
+  sla_tier?: 'standard' | 'professional' | 'enterprise';
+  // Hardware
+  gpu_type?: string;
+  gpu_count_per_replica?: number;
+  num_gpus_per_node?: number;
+  vram_mb?: number;
+  // Scaling
+  replicas_min?: number;
+  replicas_max?: number;
+  // Engine
+  backend?: 'vllm' | 'sglang' | 'trtllm';
+  backend_image?: string;
+  // Parallelism
+  tensor_parallel_size?: number;
+  pipeline_parallel_size?: number;
+  // Workload (DGDR)
+  input_sequence_length?: number;
+  output_sequence_length?: number;
+  // SLA (DGDR)
+  target_ttft_ms?: number;
+  target_itl_ms?: number;
+  target_tpot_ms?: number;
+  search_strategy?: 'rapid' | 'thorough';
+  // Disaggregated
+  disagg_enabled?: boolean;
+  prefill_replicas?: number;
+  decode_replicas?: number;
+  // DGD-specific
+  frontend_replicas?: number;
+  worker_command?: string;
+  dynamo_namespace?: string;
+  router_mode?: 'random' | 'kv';
+  env_vars?: Record<string, string>;
+  // Advanced
+  max_batch_size?: number;
+  max_sequence_length?: number;
+  dtype?: string;
+  extra_args?: Record<string, string>;
 }
 
 export interface Deployment {
   id: string;
   model_id: string;
+  name: string;
   status: string;
-  replicas: number;
+  deploy_mode: string;
+  backend: string;
   gpu_type: string;
+  gpu_count_per_replica: number;
+  tensor_parallel_size: number;
+  pipeline_parallel_size: number;
+  disagg_enabled: boolean;
+  prefill_replicas: number;
+  decode_replicas: number;
+  replicas_min: number;
+  replicas_max: number;
+  replicas_current: number;
   endpoint_url: string | null;
+  error_message: string;
   created_at: string;
 }
 
+function pick<T = unknown>(obj: Record<string, unknown>, ...keys: string[]): T | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (value !== undefined && value !== null) return value as T;
+  }
+  return undefined;
+}
+
+function normalizeModel(raw: Record<string, unknown>): Model {
+  return {
+    id: String(pick(raw, 'id', 'ID') ?? ''),
+    name: String(pick(raw, 'name', 'Name') ?? ''),
+    slug: pick<string>(raw, 'slug', 'Slug'),
+    description: String(pick(raw, 'description', 'Description') ?? ''),
+    storage_uri: pick<string>(raw, 'storage_uri', 'storageURI', 'StorageURI'),
+    framework: String(pick(raw, 'framework', 'Framework') ?? ''),
+    format: String(pick(raw, 'format', 'Format') ?? ''),
+    status: String(pick(raw, 'status', 'Status') ?? ''),
+    is_public: Boolean(pick(raw, 'is_public', 'IsPublic') ?? false),
+    parameter_count: Number(pick(raw, 'parameter_count', 'ParameterCount') ?? 0),
+    context_length: Number(pick(raw, 'context_length', 'ContextLength') ?? 0),
+    created_at: String(pick(raw, 'created_at', 'CreatedAt') ?? new Date().toISOString()),
+  };
+}
+
+function normalizeDeployment(raw: Record<string, unknown>): Deployment {
+  return {
+    id: String(pick(raw, 'id', 'ID') ?? ''),
+    model_id: String(pick(raw, 'model_id', 'ModelID') ?? ''),
+    name: String(pick(raw, 'name', 'Name') ?? ''),
+    status: String(pick(raw, 'status', 'Status') ?? ''),
+    deploy_mode: String(pick(raw, 'deploy_mode', 'DeployMode') ?? ''),
+    backend: String(pick(raw, 'backend', 'Backend') ?? ''),
+    gpu_type: String(pick(raw, 'gpu_type', 'GPUType') ?? ''),
+    gpu_count_per_replica: Number(pick(raw, 'gpu_count_per_replica', 'GPUCountPerReplica') ?? 0),
+    tensor_parallel_size: Number(pick(raw, 'tensor_parallel_size', 'TensorParallelSize') ?? 0),
+    pipeline_parallel_size: Number(pick(raw, 'pipeline_parallel_size', 'PipelineParallelSize') ?? 0),
+    disagg_enabled: Boolean(pick(raw, 'disagg_enabled', 'DisaggEnabled') ?? false),
+    prefill_replicas: Number(pick(raw, 'prefill_replicas', 'PrefillReplicas') ?? 0),
+    decode_replicas: Number(pick(raw, 'decode_replicas', 'DecodeReplicas') ?? 0),
+    replicas_min: Number(pick(raw, 'replicas_min', 'ReplicasMin') ?? 0),
+    replicas_max: Number(pick(raw, 'replicas_max', 'ReplicasMax') ?? 0),
+    replicas_current: Number(pick(raw, 'replicas_current', 'ReplicasCurrent') ?? 0),
+    endpoint_url: (pick<string>(raw, 'endpoint_url', 'EndpointURL') ?? null),
+    error_message: String(pick(raw, 'error_message', 'ErrorMessage') ?? ''),
+    created_at: String(pick(raw, 'created_at', 'CreatedAt') ?? new Date().toISOString()),
+  };
+}
+
 export const models = {
-  list: (params?: { public?: boolean; framework?: string }) => {
+  list: async (params?: { public?: boolean; framework?: string }) => {
     const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
-    return request<{ items: Model[]; total: number }>(`/models${qs}`);
+    const raw = await request<Record<string, unknown>>(`/models${qs}`);
+    const list = (pick<Array<Record<string, unknown>>>(raw, 'items', 'models') ?? []);
+    return { items: list.map(normalizeModel), total: Number(pick(raw, 'total') ?? list.length) };
   },
-  get: (id: string) => request<Model>(`/models/${id}`),
-  getDeployments: (modelId: string) =>
-    request<{ deployments: Deployment[] }>(`/models/${modelId}/deployments`),
-  deploy: (id: string, config: DeploymentConfig) =>
-    request(`/models/${id}/deploy`, { method: 'POST', body: JSON.stringify(config) }),
+  get: async (id: string) => normalizeModel(await request<Record<string, unknown>>(`/models/${id}`)),
+  create: async (data: { name: string; slug: string; description?: string; framework?: string; format?: string; storage_uri?: string }) =>
+    normalizeModel(await request<Record<string, unknown>>('/models', {
+      method: 'POST',
+      body: JSON.stringify({ ...data, framework: data.framework ?? 'pytorch' }),
+    })),
+  getDeployments: async (modelId: string) => {
+    const raw = await request<Record<string, unknown>>(`/models/${modelId}/deployments`);
+    const deployments = (pick<Array<Record<string, unknown>>>(raw, 'deployments') ?? []).map(normalizeDeployment);
+    return { deployments };
+  },
+  deploy: async (id: string, config: DeploymentConfig) =>
+    normalizeDeployment(await request<Record<string, unknown>>(`/models/${id}/deploy`, { method: 'POST', body: JSON.stringify(config) })),
   undeploy: (id: string) =>
     request(`/models/${id}/undeploy`, { method: 'POST' }),
+  delete: (id: string) =>
+    request(`/models/${id}`, { method: 'DELETE' }),
 };
 
 // ─── Tokens ───────────────────────────────────────────────────────────────

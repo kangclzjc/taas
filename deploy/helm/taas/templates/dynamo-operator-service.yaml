@@ -1,0 +1,17 @@
+{{- if .Values.dynamoOperator.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-dynamo-operator
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "dynamo-operator" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.dynamoOperator.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-dynamo-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

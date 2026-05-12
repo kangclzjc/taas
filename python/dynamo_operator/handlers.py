@@ -65,42 +65,223 @@ class DeploymentHandler:
     # ── Event handlers ──────────────────────────────────────────────────────
 
     async def _handle_deploy_requested(self, payload: dict) -> None:
-        """Create a DynamoWorker CRD in Kubernetes for the requested deployment."""
+        """Create a Dynamo CRD in Kubernetes based on deploy_mode.
+
+        deploy_mode == "dgdr":
+            Creates a DynamoGraphDeploymentRequest — SLA-driven, auto-profiling.
+            Dynamo runs AIConfigurator to find optimal config, then auto-deploys.
+
+        deploy_mode == "dgd":
+            Creates a DynamoGraphDeployment — Direct deploy with explicit config.
+            No profiling, immediate deployment. User must specify all parameters.
+        """
         deployment_id: str = payload["deployment_id"]
         model_id: str = payload["model_id"]
         org_id: str = payload["org_id"]
+        deploy_mode: str = payload.get("deploy_mode", "dgdr")
+
+        if deploy_mode == "dgd":
+            await self._create_dgd(payload)
+        else:
+            await self._create_dgdr(payload)
+
+    # ── DGDR: SLA-driven auto-profiling deployment ──────────────────────────
+
+    async def _create_dgdr(self, payload: dict) -> None:
+        """Create a DynamoGraphDeploymentRequest CRD."""
+        deployment_id: str = payload["deployment_id"]
+
+        spec: dict = {
+            "modelId": payload.get("model_id", ""),
+            "orgId": payload.get("org_id", ""),
+            "deploymentId": deployment_id,
+            "model": payload.get("model_name", ""),
+            "backend": payload.get("backend", "vllm"),
+        }
+
+        if payload.get("backend_image"):
+            spec["image"] = payload["backend_image"]
+
+        # Hardware
+        hardware: dict = {}
+        if payload.get("gpu_type"):
+            hardware["gpuSku"] = payload["gpu_type"]
+        if payload.get("num_gpus_per_node"):
+            hardware["numGpusPerNode"] = payload["num_gpus_per_node"]
+        if payload.get("vram_mb"):
+            hardware["vramMb"] = payload["vram_mb"]
+        if hardware:
+            spec["hardware"] = hardware
+
+        # Workload profile
+        workload: dict = {}
+        if payload.get("input_sequence_length"):
+            workload["isl"] = payload["input_sequence_length"]
+        if payload.get("output_sequence_length"):
+            workload["osl"] = payload["output_sequence_length"]
+        if workload:
+            spec["workload"] = workload
+
+        # SLA targets
+        sla: dict = {}
+        if payload.get("target_ttft_ms"):
+            sla["ttft"] = payload["target_ttft_ms"]
+        if payload.get("target_itl_ms"):
+            sla["itl"] = payload["target_itl_ms"]
+        if payload.get("target_tpot_ms"):
+            sla["tpot"] = payload["target_tpot_ms"]
+        if sla:
+            spec["sla"] = sla
+
+        if payload.get("search_strategy"):
+            spec["searchStrategy"] = payload["search_strategy"]
+
+        spec["autoApply"] = payload.get("auto_apply", True)
+
+        logger.info(
+            "Creating DGDR (auto-profiling mode)",
+            extra={
+                "deployment_id": deployment_id,
+                "model": spec.get("model"),
+                "backend": spec.get("backend"),
+                "gpu_sku": hardware.get("gpuSku", "auto-detect"),
+            },
+        )
+        await self._k8s.create_dynamo_worker(
+            name=f"dgdr-{deployment_id}",
+            spec=spec,
+            kind="DynamoGraphDeploymentRequest",
+        )
+
+    # ── DGD: Direct deploy with explicit config ─────────────────────────────
+
+    async def _create_dgd(self, payload: dict) -> None:
+        """Create a DynamoGraphDeployment CRD (no profiling, immediate deploy)."""
+        deployment_id: str = payload["deployment_id"]
+        model_name: str = payload.get("model_name", "")
+        backend: str = payload.get("backend", "vllm")
+        image: str = payload.get("backend_image", "")
+        dynamo_ns: str = payload.get("dynamo_namespace", f"taas-{deployment_id[:8]}")
+
+        tp = payload.get("tensor_parallel_size", 1)
+        pp = payload.get("pipeline_parallel_size", 1)
+        gpu_per_replica = payload.get("gpu_count_per_replica", tp * pp)
+        disagg = payload.get("disagg_enabled", False)
+        router_mode = payload.get("router_mode", "kv" if disagg else "random")
+
+        # Build services spec
+        services: dict = {}
+
+        # Frontend service
+        frontend_replicas = payload.get("frontend_replicas", 1)
+        frontend_envs = {"DYN_ROUTER_MODE": router_mode}
+        services["Frontend"] = {
+            "dynamoNamespace": dynamo_ns,
+            "componentType": "frontend",
+            "replicas": frontend_replicas,
+            "extraPodSpec": {
+                "mainContainer": {
+                    "image": image,
+                },
+            },
+            "envs": frontend_envs,
+        }
+
+        # Worker command
+        worker_cmd = payload.get("worker_command", "")
+        if not worker_cmd:
+            # Build default command based on backend
+            cmd_parts = [f"python3 -m dynamo.{backend}", f"--model {model_name}"]
+            if tp > 1:
+                cmd_parts.append(f"--tp {tp}")
+            if pp > 1:
+                cmd_parts.append(f"--pp {pp}")
+            if payload.get("dtype"):
+                cmd_parts.append(f"--dtype {payload['dtype']}")
+            if payload.get("max_sequence_length"):
+                cmd_parts.append(f"--max-model-len {payload['max_sequence_length']}")
+            # Extra args
+            for k, v in payload.get("extra_args", {}).items():
+                cmd_parts.append(f"--{k} {v}")
+            worker_cmd = " ".join(cmd_parts)
+
+        # Worker env vars
+        worker_envs = payload.get("env_vars", {})
+
+        if disagg:
+            # Disaggregated: separate prefill and decode workers
+            prefill_replicas = payload.get("prefill_replicas", 1)
+            decode_replicas = payload.get("decode_replicas", 1)
+
+            prefill_cmd = worker_cmd + " --disaggregation-mode prefill"
+            decode_cmd = worker_cmd + " --disaggregation-mode decode"
+
+            services["PrefillWorker"] = {
+                "dynamoNamespace": dynamo_ns,
+                "componentType": "worker",
+                "replicas": prefill_replicas,
+                "resources": {"limits": {"gpu": str(gpu_per_replica)}},
+                "extraPodSpec": {
+                    "mainContainer": {
+                        "image": image,
+                        "command": ["/bin/sh", "-c"],
+                        "args": [prefill_cmd],
+                    },
+                },
+                "envs": worker_envs,
+            }
+            services["DecodeWorker"] = {
+                "dynamoNamespace": dynamo_ns,
+                "componentType": "worker",
+                "replicas": decode_replicas,
+                "resources": {"limits": {"gpu": str(gpu_per_replica)}},
+                "extraPodSpec": {
+                    "mainContainer": {
+                        "image": image,
+                        "command": ["/bin/sh", "-c"],
+                        "args": [decode_cmd],
+                    },
+                },
+                "envs": worker_envs,
+            }
+        else:
+            # Aggregated: single worker type
+            worker_replicas = payload.get("replicas_min", 1)
+            services["Worker"] = {
+                "dynamoNamespace": dynamo_ns,
+                "componentType": "worker",
+                "replicas": worker_replicas,
+                "resources": {"limits": {"gpu": str(gpu_per_replica)}},
+                "extraPodSpec": {
+                    "mainContainer": {
+                        "image": image,
+                        "command": ["/bin/sh", "-c"],
+                        "args": [worker_cmd],
+                    },
+                },
+                "envs": worker_envs,
+            }
 
         spec = {
-            "modelId": model_id,
-            "orgId": org_id,
             "deploymentId": deployment_id,
-            "slaTier": payload.get("sla_tier", "standard"),
-            "replicas": {
-                "min": payload.get("replicas_min", 1),
-                "max": payload.get("replicas_max", 1),
-            },
-            "gpu": {
-                "type": payload.get("gpu_type", ""),
-                "countPerReplica": payload.get("gpu_count_per_replica", 1),
-            },
-            "model": {
-                "storageUri": payload.get("storage_uri", ""),
-                "framework": payload.get("framework", ""),
-                "format": payload.get("format", ""),
-            },
-            "inference": {
-                "maxBatchSize": payload.get("max_batch_size", 0),
-                "maxSequenceLength": payload.get("max_sequence_length", 0),
-            },
+            "orgId": payload.get("org_id", ""),
+            "services": services,
         }
 
         logger.info(
-            "Creating DynamoWorker CRD",
-            extra={"deployment_id": deployment_id, "model_id": model_id},
+            "Creating DGD (direct deploy mode)",
+            extra={
+                "deployment_id": deployment_id,
+                "model": model_name,
+                "backend": backend,
+                "disagg": disagg,
+                "services": list(services.keys()),
+            },
         )
         await self._k8s.create_dynamo_worker(
-            name=f"deploy-{deployment_id}",
+            name=f"dgd-{deployment_id}",
             spec=spec,
+            kind="DynamoGraphDeployment",
         )
 
     async def _handle_deploy_completed(self, payload: dict) -> None:

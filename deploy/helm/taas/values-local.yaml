@@ -1,0 +1,111 @@
+# Local / single-node Kubernetes (kind, minikube, k3s, etc.)
+# Usage: see scripts/deploy-local-k8s.sh
+
+global:
+  imageRegistry: ""
+
+image:
+  tag: local
+  # After importing the image into the node's containerd (see scripts/deploy-local-k8s.sh),
+  # Never avoids useless pulls. Use IfNotPresent if you use a registry instead.
+  pullPolicy: Never
+
+secrets:
+  autoCreate: true
+  # Override at install time, e.g. --set secrets.dbPassword=...
+  jwtSigningKey: "dev-local-jwt-signing-key-min-32-chars!!"
+  dbPassword: "taaslocaldb"
+  redisPassword: "taaslocalredis"
+  litellmMasterKey: "sk-litellm-master-local"
+  litellmWebhookSecret: "litellm-webhook-local"
+
+gateway:
+  # development: by default the gateway simulates deploy completion (instant "running" + placeholder endpoint).
+  # For real GPU / Dynamo while keeping dev env, layer values-local-gpu-dev.yaml or set
+  # gateway.simulateDeployCompletion: false and point dynamoFrontendUrl at your Frontend (see that file).
+  envName: development
+  replicaCount: 1
+  dynamoFrontendUrl: "http://127.0.0.1:9"
+  autoscaling:
+    enabled: false
+  ingress:
+    enabled: false
+
+# Browser UI: same ClusterIP service proxies /api -> gateway (see deploy/docker/Dockerfile.web).
+# 外网 curl RST 时：NodePort/kube-proxy 链路易踩坑，单节点改用 hostPort 直连 Pod（与 port-forward 不要同端口）。
+# 访问: http://<节点IP>:30080  （防火墙放行 tcp/30080；不要用 kubectl port-forward 再占 30080）
+web:
+  enabled: true
+  replicaCount: 1
+  hostPort: 30080
+  service:
+    type: ClusterIP
+    port: 8080
+
+litellm:
+  enabled: true
+
+auth:
+  enabled: false
+
+tokenManager:
+  enabled: false
+
+billing:
+  enabled: false
+
+dynamoOperator:
+  enabled: false
+
+modelRegistry:
+  enabled: false
+
+slaMonitor:
+  enabled: false
+
+nats:
+  url: ""
+  embedded:
+    enabled: true
+
+postgresql:
+  enabled: false
+  readReplicas:
+    replicaCount: 0
+  primary:
+    # Ephemeral: avoids Pending when local-path / CSI is broken or slow on single-node clusters.
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+redis:
+  enabled: false
+  architecture: standalone
+  master:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+networkPolicy:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+observability:
+  otlpEndpoint: ""
+
+localDeps:
+  enabled: true

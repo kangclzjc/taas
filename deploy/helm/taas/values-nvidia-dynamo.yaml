@@ -1,0 +1,35 @@
+# Overlay: TaaS uses NVIDIA Dynamo (installed separately) for real GPU inference.
+#
+# Path A — operator does not create CRDs: keep operatorK8sEnabled=false and set mockInferenceBaseUrl +
+# gateway.dynamoFrontendUrl to your Dynamo Frontend (after `kubectl get svc -n dynamo-system | grep frontend`).
+#
+# Path B — operator creates DynamoGraphDeployment (vLLM agg, no profiling): operatorK8sEnabled=true,
+# operatorCrdMode=nvidia_dgd, dynamoNamespace matching your platform (e.g. dynamo), nvidiaDgdRuntimeImage
+# aligned with NGC. Gateway should proxy /v1/* to the Frontend Service (bind script or dynamoFrontendUrl).
+#
+# Example upgrade Path A (replace URLs):
+#   helm upgrade taas-local ./deploy/helm/taas -n taas-local \
+#     -f deploy/helm/taas/values-local.yaml \
+#     -f deploy/helm/taas/values-nvidia-dynamo.yaml \
+#     --set-string dynamoOperator.mockInferenceBaseUrl='http://YOUR-FRONTEND.dynamo-system.svc.cluster.local:8000' \
+#     --set-string gateway.dynamoFrontendUrl='http://YOUR-FRONTEND.dynamo-system.svc.cluster.local:8000'
+#
+mockDynamo:
+  enabled: false
+
+gateway:
+  envName: production
+  useClusterMockDynamo: false
+  dynamoFrontendUrl: ""
+  # Path A: set to match dynamoOperator.mockInferenceBaseUrl
+
+dynamoOperator:
+  enabled: true
+  operatorK8sEnabled: false
+  mockInferenceBaseUrl: ""
+  # Path B example (uncomment / merge into your values):
+  # operatorK8sEnabled: true
+  # operatorCrdMode: nvidia_dgd
+  # dynamoNamespace: dynamo
+  # nvidiaDgdRuntimeImage: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1
+  # nvidiaDgdHfSecretName: hf-token-secret

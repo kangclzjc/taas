@@ -1,0 +1,50 @@
+# LiteLLM Proxy Configuration for TaaS
+# Models are registered dynamically via /model/new API when Dynamo deployments start.
+# No static model_list — TaaS controls the lifecycle.
+#
+# Docs: https://docs.litellm.ai/docs/proxy/configs
+
+# ─── Model List (dynamic) ───────────────────────────────────────────
+# Models are managed by TaaS via the /model/new and /model/delete Admin APIs.
+# When TaaS deploys a model to NVIDIA Dynamo, it registers the Dynamo endpoint here.
+# When TaaS stops a deployment, it removes it.
+# 
+# No static model_list needed — LiteLLM stores models in the database.
+model_list: []
+
+# ─── General Settings ────────────────────────────────────────────────
+general_settings:
+  master_key: "${LITELLM_MASTER_KEY}"       # Admin API key
+  database_url: "${DATABASE_URL}"            # Shared PostgreSQL with TaaS
+  store_model_in_db: true                    # Required for dynamic model management
+  alerting:
+    - slack
+
+litellm_settings:
+  # Virtual keys for multi-tenant API key management
+  set_verbose: false
+  drop_params: true        # Drop unsupported params instead of erroring
+  cache: true
+  cache_params:
+    type: redis
+    host: "${REDIS_HOST:-redis}"
+    port: "${REDIS_PORT:-6379}"
+    password: "${REDIS_PASSWORD:-}"
+
+  # Webhook callback: push usage data to TaaS billing system
+  success_callback: ["webhook"]
+  failure_callback: ["webhook"]
+  callbacks:
+    webhook:
+      webhook_url: "http://taas-gateway:8080/webhooks/litellm"
+      webhook_headers:
+        Authorization: "Bearer ${LITELLM_WEBHOOK_SECRET}"
+
+# ─── Router Settings ────────────────────────────────────────────────
+router_settings:
+  routing_strategy: "least-busy"   # Distribute across Dynamo instances
+  num_retries: 2
+  timeout: 120                     # Match Dynamo's 120s timeout
+  retry_after: 5
+  allowed_fails: 3
+  cooldown_time: 60

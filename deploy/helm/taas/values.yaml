@@ -16,6 +16,10 @@ image:
 gateway:
   enabled: true
   replicaCount: 2
+  envName: production
+  dynamoFrontendUrl: ""
+  litellmProxyUrl: ""
+  corsAllowedOrigins: []
   image:
     repository: taas-gateway
   service:
@@ -111,6 +115,28 @@ dynamoOperator:
   replicaCount: 1
   image:
     repository: taas-dynamo-operator
+  service:
+    port: 8000
+  operatorK8sEnabled: false
+  operatorCrdMode: nvidia_dgd
+  dynamoNamespace: dynamo
+  mockInferenceBaseUrl: ""
+  dynamoFrontendServicePort: 8000
+  nvidiaDgdGroup: nvidia.com
+  nvidiaDgdVersion: v1alpha1
+  nvidiaDgdPlural: dynamographdeployments
+  nvidiaDgdRuntimeImage: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1
+  nvidiaDgdHfSecretName: hf-token-secret
+  nvidiaHfModelDefault: Qwen/Qwen3-0.6B
+  nvidiaFrontendUrlTemplate: "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
+  nvidiaResolveFrontendViaK8s: true
+  nvidiaDgdComponentRbac: true
+  # ServiceAccounts that DGD frontend/worker pods run under. NVIDIA's DGD operator places these pods on
+  # `dynamo-platform-dynamo-operator-component` by default; we keep `dgd-components` for backward compatibility
+  # with older charts where users overrode the SA name.
+  nvidiaDgdComponentServiceAccountNames:
+    - dynamo-platform-dynamo-operator-component
+    - dgd-components
   serviceAccount:
     create: true
     name: taas-dynamo-operator
@@ -201,6 +227,9 @@ redis:
 nats:
   url: "nats://taas-nats:4222"
   credentialsSecret: taas-nats-secret
+  embedded:
+    enabled: false
+    image: nats:2.10-alpine
 
 # ─── Observability ───────────────────────────────────────────────────────────
 observability:
@@ -211,6 +240,9 @@ observability:
     namespace: monitoring
     interval: 30s
 
+prometheus:
+  enabled: false
+
 # ─── Secrets (externally managed) ───────────────────────────────────────────
 secrets:
   # Set these via --set or values override, never commit real values
@@ -218,6 +250,63 @@ secrets:
   dbPassword: ""
   redisPassword: ""
   natsCredentials: ""
+  litellmMasterKey: ""
+  litellmWebhookSecret: ""
+
+# ─── Web Dashboard (React + nginx) ───────────────────────────────────────────
+web:
+  enabled: false
+  replicaCount: 1
+  containerPort: 8080
+  hostPort: 0
+  image:
+    repository: taas-web
+  service:
+    type: ClusterIP
+    port: 8080
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts: []
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ─── Mock Dynamo (no GPU local dev) ──────────────────────────────────────────
+mockDynamo:
+  enabled: false
+  image:
+    repository: taas-mock-dynamo
+  containerPort: 9090
+  service:
+    port: 9090
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ─── LiteLLM Proxy (data plane) ──────────────────────────────────────────────
+litellm:
+  enabled: false
+  image:
+    repository: ghcr.io/berriai/litellm
+    tag: main-latest
+    pullPolicy: IfNotPresent
+  configPath: /app/config.yaml
+  service:
+    port: 4000
+
+localDeps:
+  enabled: false
 
 # ─── Network Policies ────────────────────────────────────────────────────────
 networkPolicy:

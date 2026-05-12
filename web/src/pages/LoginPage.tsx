@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { auth, APIError } from '../api/client';
 
 export default function LoginPage() {
@@ -71,6 +71,12 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
+        <p className="text-sm text-muted" style={{ marginTop: 16, textAlign: 'center' }}>
+          No account yet?{' '}
+          <Link to="/register" style={{ color: 'var(--primary)' }}>
+            Create one
+          </Link>
+        </p>
       </div>
     </div>
   );

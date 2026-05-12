@@ -4,6 +4,8 @@
 
 TaaS (Token as a Service) is a multi-tenant model inference platform built on NVIDIA Dynamo. It provides organizations with the ability to deploy LLMs, manage scoped API tokens, share inference services across teams, and enforce SLA guarantees — all through a unified API that is wire-compatible with the OpenAI API.
 
+> **Architecture Update (v2):** The API proxy layer has been migrated to [LiteLLM Proxy](https://docs.litellm.ai/docs/proxy/). See [LITELLM_MIGRATION.md](./LITELLM_MIGRATION.md) for details.
+
 ```mermaid
 graph TB
     subgraph Clients
@@ -12,13 +14,21 @@ graph TB
         CLI[CLI Tool]
     end
 
-    subgraph API Layer
-        GW[API Gateway<br/>Go / Gin]
+    subgraph LiteLLM Proxy
+        LLM[LiteLLM Gateway<br/>:4000]
+        VK[Virtual Keys]
+        RL[Rate Limiting]
+        CT[Cost Tracking]
+    end
+
+    subgraph TaaS Services
+        GW[TaaS Gateway<br/>Go / Gin :8080]
         AUTH[Auth Service<br/>Go]
+        DB_BRIDGE[Dynamo Bridge<br/>Go :8090]
     end
 
     subgraph Core Services
-        TM[Token Manager<br/>Go]
+        TM[Token Manager<br/>Go + LiteLLM Sync]
         MM[Model Manager<br/>Go]
         BILL[Billing Service<br/>Go]
     end
@@ -49,25 +59,31 @@ graph TB
         OTEL[OpenTelemetry Collector]
     end
 
-    SDK --> GW
+    SDK -->|Inference| LLM
+    CLI -->|Inference| LLM
     WebUI --> GW
-    CLI --> GW
+    SDK -->|Management| GW
+
+    LLM -->|Forward| DB_BRIDGE
+    LLM -->|Webhook| GW
+    DB_BRIDGE -->|Tenant Headers| DF
 
     GW -->|AuthN/AuthZ| AUTH
-    GW -->|Token CRUD| TM
+    GW -->|Token CRUD + LiteLLM Sync| TM
     GW -->|Model CRUD| MM
     GW -->|Usage/Invoices| BILL
-    GW -->|Inference /v1/*| DF
 
     AUTH --> PG
     AUTH --> RD
     TM --> PG
     TM --> RD
+    TM -->|Virtual Key Sync| LLM
     MM --> PG
     MM --> MR
     MM --> DO
     BILL --> PG
     BILL --> NATS
+    DB_BRIDGE --> NATS
 
     DO --> DF
     DO --> DP

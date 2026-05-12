@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -20,16 +21,21 @@ import (
 	"github.com/taas-platform/taas/internal/audit"
 	"github.com/taas-platform/taas/internal/auth"
 	"github.com/taas-platform/taas/internal/billing"
-	dynamoClient "github.com/taas-platform/taas/internal/dynamo"
+	litellmPkg "github.com/taas-platform/taas/internal/litellm"
 	"github.com/taas-platform/taas/internal/model"
 	"github.com/taas-platform/taas/internal/monitoring"
+	"github.com/taas-platform/taas/internal/natsutil"
 	"github.com/taas-platform/taas/internal/org"
-	"github.com/taas-platform/taas/internal/proxy"
-	"github.com/taas-platform/taas/internal/quota"
 	"github.com/taas-platform/taas/internal/telemetry"
 	"github.com/taas-platform/taas/internal/token"
 	"github.com/taas-platform/taas/pkg/config"
 	"github.com/taas-platform/taas/pkg/middleware"
+
+	// Deprecated: proxy and quota are now handled by LiteLLM Proxy + Dynamo Bridge.
+	// These imports are kept for backward compatibility when LITELLM_ENABLED=false.
+	dynamoClient "github.com/taas-platform/taas/internal/dynamo"
+	"github.com/taas-platform/taas/internal/proxy"
+	"github.com/taas-platform/taas/internal/quota"
 )
 
 func main() {
@@ -65,8 +71,8 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to parse database config", zap.Error(err))
 	}
-	poolConfig.MaxConns = int32(cfg.DBMaxOpenConns)  // max open connections (P3: clarified naming)
-	poolConfig.MinConns = int32(cfg.DBMaxIdleConns)  // pre-warmed idle connections
+	poolConfig.MaxConns = int32(cfg.DBMaxOpenConns) // max open connections (P3: clarified naming)
+	poolConfig.MinConns = int32(cfg.DBMaxIdleConns) // pre-warmed idle connections
 
 	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -91,6 +97,7 @@ func main() {
 	// ── NATS JetStream ─────────────────────────────────────────
 	var usagePublisher *billing.Publisher
 	var nc *nats.Conn
+	var js nats.JetStreamContext
 	if cfg.NATSUrl != "" {
 		var natsErr error
 		nc, natsErr = nats.Connect(cfg.NATSUrl)
@@ -99,10 +106,14 @@ func main() {
 			nc = nil
 		} else {
 			defer nc.Close()
-			js, jsErr := nc.JetStream()
+			var jsErr error
+			js, jsErr = nc.JetStream()
 			if jsErr != nil {
 				logger.Warn("failed to init jetstream, billing disabled", zap.Error(jsErr))
 			} else {
+				if streamErr := natsutil.EnsureTAASEventsStream(js); streamErr != nil {
+					logger.Warn("failed to ensure jetstream stream", zap.Error(streamErr))
+				}
 				usagePublisher = billing.NewPublisher(js)
 			}
 		}
@@ -110,6 +121,18 @@ func main() {
 
 	// ── Services ───────────────────────────────────────────────
 	metrics := monitoring.NewMetrics("taas")
+
+	// Determine if LiteLLM mode is enabled
+	litellmEnabled := os.Getenv("LITELLM_ENABLED") == "true"
+	litellmProxyURL := os.Getenv("LITELLM_PROXY_URL") // e.g., http://litellm:4000
+	litellmMasterKey := os.Getenv("LITELLM_MASTER_KEY")
+	litellmWebhookSecret := os.Getenv("LITELLM_WEBHOOK_SECRET")
+
+	if litellmEnabled {
+		logger.Info("LiteLLM integration enabled",
+			zap.String("proxy_url", litellmProxyURL),
+		)
+	}
 
 	jwtSvc := auth.NewJWTService(cfg.JWTSigningKey, cfg.JWTExpirySeconds, cfg.RefreshTokenExpiryDays)
 
@@ -128,13 +151,65 @@ func main() {
 	tokenRepo := token.NewRepository(dbPool)
 	tokenValidator := token.NewValidator(rdb, tokenRepo.LookupForValidation)
 	tokenSvc := token.NewService(tokenRepo, tokenValidator, logger)
-	tokenHandler := token.NewHandler(tokenSvc, logger)
+
+	// LiteLLM admin client (shared by token and model services)
+	var litellmAdmin *litellmPkg.AdminClient
+	if litellmEnabled && litellmProxyURL != "" && litellmMasterKey != "" {
+		litellmAdmin = litellmPkg.NewAdminClient(litellmProxyURL, litellmMasterKey, logger)
+	}
+
+	// Token handler: with or without LiteLLM sync
+	var tokenHandler *token.Handler
+	if litellmAdmin != nil {
+		litellmTokenSvc := token.NewLiteLLMService(tokenSvc, litellmAdmin, logger)
+		tokenHandler = token.NewLiteLLMHandler(litellmTokenSvc, logger)
+		logger.Info("token service: LiteLLM virtual key sync enabled")
+	} else {
+		tokenHandler = token.NewHandler(tokenSvc, logger)
+		if litellmEnabled {
+			logger.Warn("LiteLLM enabled but missing LITELLM_PROXY_URL or LITELLM_MASTER_KEY, token sync disabled")
+		}
+	}
 
 	modelRepo := model.NewPGRepository(dbPool)
 	sharingService := model.NewSharingService(dbPool)
 	modelSvc := model.NewService(modelRepo, sharingService)
 	modelHandler := model.NewHandler(modelSvc, sharingService, logger)
 
+	// Model LiteLLM sync: registers Dynamo endpoints in LiteLLM when deployments become ready
+	var modelLiteLLMSvc *model.LiteLLMService
+	if litellmAdmin != nil {
+		modelLiteLLMSvc = model.NewLiteLLMService(modelSvc, litellmAdmin, modelRepo, logger)
+		logger.Info("model service: LiteLLM model sync enabled")
+	}
+
+	if js != nil {
+		modelSvc.SetDeploymentPublisher(model.NewNATSDeploymentPublisher(js, logger))
+		_, subErr := model.StartDeploymentStatusConsumer(
+			ctx,
+			js,
+			modelSvc,
+			logger,
+			func(hookCtx context.Context, deploymentID uuid.UUID, endpointURL string) error {
+				if modelLiteLLMSvc == nil {
+					return nil
+				}
+				return modelLiteLLMSvc.OnDeploymentRunning(hookCtx, deploymentID, endpointURL)
+			},
+		)
+		if subErr != nil {
+			logger.Warn("failed to start deployment status consumer", zap.Error(subErr))
+		}
+	} else {
+		logger.Warn("NATS unavailable: model deploy requests will remain pending")
+	}
+	// Note: modelLiteLLMSvc.OnDeploymentRunning() should be called from the NATS
+	// deployment.status.updated consumer when status == "running".
+	// modelLiteLLMSvc.OnDeploymentStopped() when status == "stopped" or "failed".
+	_ = modelLiteLLMSvc // available for NATS consumer wiring
+
+	// Deprecated: These are only used when LITELLM_ENABLED=false (legacy mode).
+	// In LiteLLM mode, rate limiting and proxy are handled by LiteLLM Proxy + Dynamo Bridge.
 	rateLimiter := quota.NewRateLimiter(rdb)
 
 	costCalc := billing.NewCostCalculator(billing.PricingConfig{
@@ -150,6 +225,16 @@ func main() {
 	proxyHandler := proxy.NewHandler(dc, usagePublisher, costCalc, metrics, logger)
 
 	billingHandler := billing.NewHandler(dbPool, logger)
+
+	// LiteLLM webhook handler (receives usage callbacks from LiteLLM Proxy)
+	var litellmWebhook *litellmPkg.WebhookHandler
+	if litellmEnabled {
+		if litellmWebhookSecret == "" {
+			litellmWebhookSecret = "change-me-webhook-secret"
+			logger.Warn("LITELLM_WEBHOOK_SECRET not set, using default (insecure)")
+		}
+		litellmWebhook = litellmPkg.NewWebhookHandler(dbPool, litellmWebhookSecret, logger)
+	}
 
 	// ── Organization ───────────────────────────────────────────
 	orgRepo := org.NewRepository(dbPool)
@@ -256,11 +341,29 @@ func main() {
 		// Admin endpoints can be added here
 	}
 
-	// API Key authenticated routes (inference)
-	v1 := router.Group("/v1")
-	v1.Use(proxy.APIKeyAuth(tokenValidator, logger))
-	v1.Use(quota.RateLimitMiddleware(rateLimiter, metrics, logger))
-	proxyHandler.RegisterRoutes(v1)
+	if litellmEnabled {
+		// ── LiteLLM Mode ───────────────────────────────────────
+		// Inference requests go directly to LiteLLM Proxy (not through this gateway).
+		// This gateway only handles: auth, token CRUD, model CRUD, billing, webhooks.
+
+		// LiteLLM webhook endpoint (receives usage callbacks)
+		if litellmWebhook != nil {
+			webhookGroup := router.Group("/webhooks")
+			litellmWebhook.RegisterRoutes(webhookGroup)
+			logger.Info("LiteLLM webhook endpoint registered at /webhooks/litellm")
+		}
+
+		logger.Info("LiteLLM mode: /v1 inference routes NOT registered (handled by LiteLLM Proxy)")
+	} else {
+		// ── Legacy Mode (deprecated) ───────────────────────────
+		// Direct proxy to Dynamo — will be removed in a future version.
+		logger.Warn("running in legacy mode without LiteLLM — set LITELLM_ENABLED=true to use LiteLLM Proxy")
+
+		v1 := router.Group("/v1")
+		v1.Use(proxy.APIKeyAuth(tokenValidator, logger))
+		v1.Use(quota.RateLimitMiddleware(rateLimiter, metrics, logger))
+		proxyHandler.RegisterRoutes(v1)
+	}
 
 	// ── Server ─────────────────────────────────────────────────
 	addr := fmt.Sprintf(":%d", cfg.Port)

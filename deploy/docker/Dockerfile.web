@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+# TaaS dashboard — static React build behind nginx (API proxied at runtime via Helm ConfigMap).
+FROM node:20-alpine AS build
+
+WORKDIR /app
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci
+
+COPY web/ ./
+# Browser calls same-origin /api/*; nginx strips prefix and proxies to gateway.
+ENV VITE_API_URL=/api
+
+RUN npm run build
+
+FROM nginx:1.27-alpine
+
+COPY --from=build /app/dist /usr/share/nginx/html
+# Placeholder; Helm mounts a ConfigMap over this path at runtime.
+COPY deploy/docker/nginx.web.default.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080

@@ -1,0 +1,76 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "taas.fullname" . }}-prometheus-config
+  labels:
+    {{- include "taas.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: taas-gateway
+        static_configs:
+          - targets: [ "{{ include "taas.fullname" . }}-gateway:{{ .Values.gateway.service.metricsPort }}" ]
+        metrics_path: /metrics
+      {{- if .Values.dynamoOperator.enabled }}
+      - job_name: taas-dynamo-operator
+        static_configs:
+          - targets: [ "{{ include "taas.fullname" . }}-dynamo-operator:{{ .Values.dynamoOperator.service.port }}" ]
+        metrics_path: /metrics
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-prometheus
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "prometheus" "root" .) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-prometheus
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "prometheus" "root" .) | nindent 8 }}
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image | quote }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.prometheus.retention }}
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "taas.fullname" . }}-prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-prometheus
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "prometheus" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9090
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-prometheus
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

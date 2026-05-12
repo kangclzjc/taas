@@ -4,210 +4,414 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/taas-platform/taas)](https://goreportcard.com/report/github.com/taas-platform/taas)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**TaaS** is a multi-tenant model inference platform built on [NVIDIA Dynamo](https://developer.nvidia.com/dynamo). It gives organizations a production-ready way to deploy LLMs behind scoped API tokens, enforce SLA guarantees, track per-token usage, and share inference services across teams — all through an API that is wire-compatible with the OpenAI API.
+**TaaS** is a multi-tenant inference platform that turns
+[NVIDIA Dynamo](https://developer.nvidia.com/dynamo) into a self-service product
+backed by [LiteLLM Proxy](https://docs.litellm.ai/). Platform teams get a
+control plane (orgs, users, models, deployments, billing) and an OpenAI-wire
+compatible data plane (auth, rate-limit, spend tracking) — without writing the
+glue.
 
-**Why TaaS exists:** Running LLMs in production requires more than just a GPU and a model. You need authentication, per-customer rate limiting, usage metering, billing, model lifecycle management, and SLA enforcement. TaaS wraps NVIDIA Dynamo's disaggregated prefill/decode architecture with a complete multi-tenant control plane so platform teams can offer "inference as a service" to internal or external customers.
+What you can do end-to-end, today:
+
+- **Click "Deploy" in the UI** to provision an NVIDIA Dynamo
+  `DynamoGraphDeployment` (DGD or DGDR) on a Kubernetes cluster — no YAML.
+- The deployment is automatically registered as a model in LiteLLM the moment
+  it goes ready.
+- Issue **scoped API keys** (LiteLLM virtual keys) from the TaaS UI — usable as
+  drop-in `Authorization: Bearer …` for any OpenAI SDK.
+- Per-key budgets, RPM/TPM limits, models allow-list, spend tracking — all in
+  LiteLLM, all driven from the TaaS control plane.
+
+---
 
 ## Architecture
 
+TaaS splits cleanly into a **control plane** (TaaS' own services) and a
+**data plane** (LiteLLM proxy in front of NVIDIA Dynamo). The control plane
+never sits on the inference hot path.
+
 ```
-                           ┌─────────────────────────────────────────────────────┐
-                           │                   TaaS Platform                     │
-                           │                                                     │
-  ┌──────────┐             │  ┌─────────┐    ┌───────────────────────────────┐   │
-  │  Client   │─── HTTPS ──┼─▶│   API   │───▶│  Auth · Token · Proxy · Billing│  │
-  │ (SDK/CLI/ │             │  │ Gateway │    │       (Go microservices)      │   │
-  │  WebUI)   │             │  │  (Gin)  │    └──────────────┬────────────────┘   │
-  └──────────┘             │  └────┬────┘                    │                   │
-                           │       │ /v1/*                   │                   │
-                           │       ▼                         ▼                   │
-                           │  ┌─────────┐    ┌───────────────────────────────┐   │
-                           │  │  NVIDIA  │    │  Dynamo Operator · Model      │   │
-                           │  │  Dynamo  │    │  Registry · SLA Monitor       │   │
-                           │  │ Frontend │    │       (Python services)       │   │
-                           │  └────┬────┘    └───────────────────────────────┘   │
-                           │       │                                             │
-                           │       ▼                                             │
-                           │  ┌──────────────────────────────────┐               │
-                           │  │  Prefill Workers │ Decode Workers │◀── GPU Pool  │
-                           │  │          (KV Cache Manager)       │               │
-                           │  └──────────────────────────────────┘               │
-                           │                                                     │
-                           │  ┌──────────┐ ┌───────┐ ┌──────────────┐           │
-                           │  │PostgreSQL│ │ Redis │ │NATS JetStream│           │
-                           │  └──────────┘ └───────┘ └──────────────┘           │
-                           └─────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │                                CLIENTS                                   │
+  │   Web UI (admin)        OpenAI SDK / curl (inference)                    │
+  └────────────┬───────────────────────────────────┬─────────────────────────┘
+               │ JWT / cookies                     │ Bearer <virtual key>
+               ▼                                   ▼
+  ┌────────────────────────────┐       ┌──────────────────────────────────────┐
+  │      TaaS Gateway (Go)     │       │            LiteLLM Proxy             │
+  │  /auth /tokens /models     │──────▶│        /v1/chat/completions          │
+  │  /organizations /usage     │       │        /v1/embeddings  /v1/models    │
+  │  /deployments  /admin      │       │  virtual keys, models DB, spend, RPM │
+  └────┬───────────────┬───────┘       └─────────────────┬────────────────────┘
+       │ NATS publish  │ /key /model                     │ openai/<served>
+       ▼               ▼ /team                           ▼
+  ┌────────────┐  ┌──────────────────────────┐   ┌──────────────────────────┐
+  │  NATS JS   │  │  PostgreSQL (taas + DB   │   │  NVIDIA Dynamo Frontend  │
+  │ TAAS_EVENTS│  │  litellm; users, models, │   │  (per DGD; vLLM/SGLang/  │
+  └────┬───────┘  │  tokens, deployments,    │   │   TRT-LLM workers, KV-   │
+       │ subscribe│  usage, LiteLLM metadata)│   │   aware router)          │
+       ▼          └──────────────────────────┘   └──────┬───────────────────┘
+  ┌──────────────────────────────────┐                  │ /v1/*
+  │  TaaS Dynamo Operator (Python)   │ ───────create───▶│
+  │   model.deploy.requested →       │   DynamoGraph    │
+  │     create DGD CRD               │   Deployment CR  │
+  │   watch DGD →                    │ ◀──watch state───│
+  │     deployment.status.updated    │                  │
+  └──────────────────────────────────┘                  ▼
+                                              ┌──────────────────┐
+                                              │   GPU Pool       │
+                                              └──────────────────┘
 ```
 
-**Request flow:** Client sends an OpenAI-compatible request → API Gateway validates the API key (Redis cache + SHA-256 hash lookup) → enforces rate limit (sliding window in Redis) → proxies to NVIDIA Dynamo Frontend with tenant context headers (`X-Tenant-ID`, `X-SLA-Tier`, `X-Token-ID`) → Dynamo routes to prefill/decode workers → response streams back to client → Gateway publishes usage event to NATS JetStream → Billing Collector persists to PostgreSQL.
+### End-to-end flow
+
+**Provisioning a model (one time):**
+
+1. User opens the TaaS web UI and clicks **+ Create model** — picks a source
+   (`HuggingFace` / `NIM` / `Custom URI`) and a slug.
+2. User enters the model detail page and clicks **+ Deploy**, picks DGDR
+   (auto-profiling, SLA-driven) or DGD (direct deploy with explicit
+   TP/PP/replicas), GPU type, etc.
+3. TaaS Gateway persists the `Deployment` row and publishes
+   `model.deploy.requested` to NATS JetStream.
+4. **TaaS Dynamo Operator** consumes the message, builds and applies a
+   `DynamoGraphDeployment` CR in the `dynamo` namespace, ensures the worker
+   discovery Service (with ownerReferences so it isn't GC'd), and watches the
+   CR.
+5. When the DGD reports `Ready=True / state=successful`, the operator
+   publishes `deployment.status.updated` to NATS.
+6. Gateway updates the deployment status to `running` and **registers the
+   model in LiteLLM** via `/model/new` — passing the upstream HF id derived
+   from the model's source field.
+
+**Calling the model (every request):**
+
+1. Client sends `POST /v1/chat/completions` to LiteLLM with
+   `Authorization: Bearer <virtual key>`.
+2. LiteLLM validates the virtual key (models allow-list, budget, RPM/TPM),
+   resolves `model: <slug>` to the registered Dynamo Frontend, forwards the
+   request.
+3. Dynamo routes to prefill/decode workers (KV-aware), streams the response
+   back through LiteLLM to the client.
+4. LiteLLM records spend against the virtual key (and its team).
+
+---
+
+## Key Features
+
+| | |
+|---|---|
+| **One-click DGD/DGDR from UI** | Web form translates to NVIDIA `DynamoGraphDeployment` (direct or auto-profile) — no kubectl, no YAML |
+| **Model source selector** | HuggingFace id / NIM ref / custom storage URI; the operator passes the right value to vLLM |
+| **Auto LiteLLM registration** | A deployment going `running` triggers `POST /model/new` with the right `api_base` and `model` — clients can call it immediately |
+| **Self-service API keys** | TaaS API Tokens page issues LiteLLM virtual keys (with model allow-list, budget, RPM/TPM) — `sk-…` strings drop straight into OpenAI SDK |
+| **Multi-tenant by default** | TaaS Organization → LiteLLM Team mapping; per-org spend, isolation, sharing across orgs |
+| **Async, decoupled control plane** | Gateway never blocks on Kubernetes — all deploy actions fan out via NATS JetStream |
+| **Full local k8s install** | `scripts/deploy-local-k8s.sh` brings up gateway + web + LiteLLM + Postgres + Redis + NATS + (optional) NVIDIA Dynamo on a single-node cluster |
+| **OpenAI-wire compatible** | Inference endpoint is LiteLLM's, so any OpenAI SDK works against TaaS deployments verbatim |
+
+---
 
 ## Tech Stack
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **API Gateway** | Go 1.23, Gin | HTTP routing, auth middleware, inference proxy |
-| **Auth** | JWT (HS256), bcrypt, Redis blocklist | User authentication, RBAC (owner/admin/member/viewer) |
-| **Token Management** | SHA-256 hashing, Redis cache | API key lifecycle (create, rotate, revoke, scope) |
-| **Rate Limiting** | Redis sorted sets (sliding window) | Per-token RPM/TPM enforcement |
-| **Inference Backend** | NVIDIA Dynamo | Disaggregated prefill/decode, KV cache, GPU scheduling |
-| **Usage & Billing** | NATS JetStream, PostgreSQL | Event-driven usage collection, invoice generation |
-| **Database** | PostgreSQL 16 | Users, tokens, models, deployments, usage records |
-| **Cache / Rate Limit** | Redis 7 | Token cache, rate limit counters, deployment endpoints |
-| **Message Bus** | NATS JetStream | Usage events, deployment lifecycle, SLA violations |
-| **Observability** | Prometheus, Grafana, Jaeger, OpenTelemetry | Metrics, dashboards, distributed tracing |
-| **ML Operations** | Python (FastAPI) | Dynamo Operator, Model Registry, SLA Monitor |
-| **Web Dashboard** | React, TypeScript, Vite | Admin UI for tokens, models, usage |
-| **Infrastructure** | Kubernetes, Helm, Docker | Deployment, scaling, GPU scheduling |
+| **Control-plane API** | Go 1.23, Gin | Auth, orgs/users, models, deployments, tokens, billing |
+| **Inference data plane** | [LiteLLM Proxy](https://docs.litellm.ai/) | Virtual keys, models DB, request routing, spend metering |
+| **Inference backend** | [NVIDIA Dynamo](https://developer.nvidia.com/dynamo) (vLLM / SGLang / TRT-LLM) | Disaggregated prefill/decode, KV-aware routing |
+| **Operator** | Python 3.11 + FastAPI + `kubernetes-asyncio` | Consumes deploy events, creates DGD CRs, watches state |
+| **Auth** | JWT (HS256) cookies, bcrypt, RBAC (owner/admin/member/viewer) | TaaS user authentication |
+| **Database** | PostgreSQL 16 (`taas` DB + dedicated `litellm` DB) | All persistent state |
+| **Cache / rate limit** | Redis 7 | Session, rate limit windows, deployment endpoint cache |
+| **Message bus** | NATS JetStream (stream `TAAS_EVENTS`) | `model.deploy.requested`, `deployment.status.updated`, usage events |
+| **Observability** | Prometheus, OpenTelemetry, Grafana, Jaeger | Metrics, traces, dashboards |
+| **Web dashboard** | React 18 + TypeScript + Vite, served by nginx | Admin UI, model deploy form, API key management |
+| **Infrastructure** | Helm chart (single chart, multiple values flavors), Docker | Single-cluster install for local + cloud |
+
+---
 
 ## Quick Start
 
-**Prerequisites:** Docker and Docker Compose installed.
+### Option 1 — Local Kubernetes (recommended; full stack)
+
+This brings up everything (gateway + web + LiteLLM + Postgres + Redis +
+embedded NATS) on a single-node cluster.
 
 ```bash
-# 1. Clone and start all services
+# Prereqs: a working kubectl context (kind / k3s / minikube / your cluster),
+#          docker on the same host, and helm.
 git clone https://github.com/taas-platform/taas.git
 cd taas
+bash scripts/deploy-local-k8s.sh
+```
+
+The script will print the port-forward / SSH-tunnel hints at the end. Typical
+local setup:
+
+```bash
+kubectl port-forward -n taas-local svc/taas-local-web      30080:8080 &
+kubectl port-forward -n taas-local svc/taas-local-litellm  14000:4000 &
+
+# From your laptop (e.g. macOS) over SSH to the dev box:
+ssh -N -L 3001:127.0.0.1:30080 -L 4001:127.0.0.1:14000 user@dev-box
+
+# Then open:
+#   TaaS UI :   http://127.0.0.1:3001
+#   LiteLLM UI: http://127.0.0.1:4001/ui
+```
+
+To also bring up the **NVIDIA Dynamo platform** on the same cluster (CRDs +
+controller, so you can deploy real DGDs):
+
+```bash
+bash scripts/install-nvidia-dynamo.sh   # one-shot helm install of nvidia-dynamo
+L20_GPU_DEV=1 bash scripts/deploy-local-k8s.sh
+```
+
+The `L20_GPU_DEV=1` flavor uses `values-local-gpu-dev.yaml`, which enables
+the operator's K8s mode and points it at the `dynamo` namespace.
+
+### Option 2 — Minimal dev (Docker Compose, no LiteLLM, no GPU)
+
+For people just hacking on the gateway / Go code:
+
+```bash
 docker compose -f deploy/docker/docker-compose.dev.yaml up -d
+make build && ./bin/gateway
+```
 
-# 2. Wait for healthy (takes ~30s)
-until curl -s http://localhost:8080/health | grep -q ok; do sleep 2; done
+This path uses the mock Dynamo backend and skips LiteLLM. It is **not**
+representative of the production data path.
 
-# 3. Register a user (auto-creates an organization)
-curl -s http://localhost:8080/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"alice@example.com","password":"SuperSecret123!"}' | jq .
+---
 
-# Save the access_token from the response:
-export TOKEN="<access_token from response>"
+## Deploying a model from the UI
 
-# 4. Create an API token for inference
-curl -s http://localhost:8080/tokens \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"my-first-key","rate_limit_rpm":100}' | jq .
+The end-to-end happy path (after `deploy-local-k8s.sh` is up) takes ~3 minutes
+once the GPU has the model weights cached.
 
-# Save the key from the response (shown only once):
-export API_KEY="<key from response>"
+### 1. Sign up / log in
 
-# 5. Make an inference call (OpenAI-compatible)
-curl http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer $API_KEY" \
+Open the TaaS UI, click **Create one** on the login screen, register with
+email + password (an organization is auto-created for you).
+
+### 2. Create a model
+
+`Models → + Create model`. Fields:
+
+| Field | What to put |
+|---|---|
+| **Model name** | Human-readable, e.g. `Qwen3 8B` |
+| **Slug** | Lowercase-hyphen, e.g. `qwen3-8b`. This is the `model:` clients pass to LiteLLM |
+| **Source** | `HuggingFace` (recommended) / `NIM` / `Custom URI` |
+| **Source value** | For HF: `Qwen/Qwen3-8B`. For NIM: `meta/llama-3.1-8b-instruct`. For Custom URI: `s3://…` |
+| **Description** | Optional |
+
+This step does **not** allocate any GPU — it just registers the model in TaaS.
+
+### 3. Deploy a DGD or DGDR
+
+Open the model detail page, click **+ Deploy**.
+
+- **Direct Deploy (DGD)** — explicit TP/PP, replicas, image. Fast bring-up,
+  no profiling. Good when you already know your config.
+- **Auto-Optimized (DGDR)** — TaaS gives Dynamo a workload profile (ISL/OSL)
+  + SLA targets (TTFT, ITL/TPOT). Dynamo's `AIConfigurator` picks an
+  optimal config, then deploys. Slower to start, optimal once running.
+
+Common knobs the form exposes: GPU type, GPUs per replica, TP / PP, replicas
+min/max, backend (vLLM / SGLang / TRT-LLM), disaggregated serving toggle
+(prefill_replicas / decode_replicas), router mode (random / kv).
+
+Behind the scenes:
+
+```
+[UI Deploy click]
+   → POST /api/models/{id}/deploy
+   → TaaS Gateway: insert deployment row (status=pending)
+   → NATS publish "model.deploy.requested"
+   → Operator: create DynamoGraphDeployment CR
+   → NVIDIA Dynamo controller: schedule frontend + worker pods
+   → Worker registers itself (DynamoWorkerMetadata + EndpointSlice)
+   → Operator watch sees Ready=True
+   → NATS publish "deployment.status.updated" status=running
+   → Gateway: status→running, endpoint_url→<frontend svc URL>
+   → Gateway: POST /model/new → LiteLLM (auto)
+```
+
+The model detail page now shows the **"How to call this model"** card with
+a copy-able curl + Python example, plus an editable `LiteLLM Base` field
+that adapts to where you're calling from (dev box `:14000`, SSH tunnel
+`:4001`, in-cluster service URL).
+
+### 4. Issue an API key
+
+`API Tokens → + Create Token`. Pick the model(s) the key may call, optional
+budget and RPM. The popup shows the `sk-…` once — copy it.
+
+### 5. Call the model
+
+```bash
+curl http://127.0.0.1:4001/v1/chat/completions \
+  -H "Authorization: Bearer sk-…<your virtual key>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "llama-3-8b",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "max_tokens": 128
+    "model": "qwen3-8b",
+    "messages": [{"role":"user","content":"Hello"}]
   }'
 ```
 
-> **Note:** The dev environment uses a mock Dynamo backend. For real GPU inference, deploy on a Kubernetes cluster with NVIDIA GPUs — see [Deployment Guide](docs/deployment.md).
+Or in Python:
 
-## API Overview
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:4001/v1",
+                api_key="sk-…<your virtual key>")
+print(client.chat.completions.create(
+    model="qwen3-8b",
+    messages=[{"role":"user","content":"Hello"}],
+).choices[0].message.content)
+```
 
-TaaS exposes a RESTful API grouped into the following endpoint families. Full details with curl examples are in the [API Guide](docs/api-guide.md).
+---
 
-| Group | Endpoints | Description |
-|-------|----------|-------------|
-| **Auth** | `POST /auth/register`, `/login`, `/refresh`, `/logout` | User registration, JWT login, token refresh, logout with blocklist |
-| **Users** | `GET/PUT /users/me` | Get and update current user profile |
-| **Organizations** | `CRUD /organizations`, `/organizations/{id}/members` | Create orgs, invite members, manage roles |
-| **Models** | `CRUD /models`, `POST /models/{id}/deploy`, `/undeploy` | Register, deploy, undeploy, delete models |
-| **Tokens** | `CRUD /tokens`, `POST /tokens/{id}/rotate` | Create scoped API keys, list, revoke, rotate |
-| **Model Sharing** | `GET/POST /models/{id}/shares`, `DELETE .../shares/{id}` | Share models across organizations |
-| **Inference** | `POST /v1/chat/completions`, `/completions`, `/embeddings`, `GET /v1/models` | OpenAI-compatible inference (streaming + non-streaming) |
-| **Usage** | `GET /usage/summary`, `/by-model`, `/by-token`, `/timeseries` | Usage analytics by org, model, token, time period |
-| **Billing** | `GET /billing/current`, `/invoices`, `/invoices/{id}` | Current billing period, invoice list and details |
-| **Admin** | `GET /admin/users`, `PUT /admin/users/{id}/quota`, `GET /admin/system/health` | Platform admin: user management, quotas, system health |
+## Authentication model
 
-The inference endpoints (`/v1/*`) are authenticated via API key (`taas_...`). All other endpoints use JWT Bearer tokens.
+TaaS layers three different kinds of credentials. They live at different
+layers and have different blast radii — keep them straight.
 
-## Project Structure
+| Credential | Where issued | Where used | Scope / blast radius |
+|---|---|---|---|
+| **JWT cookie** | TaaS Gateway `/auth/login` | Browser → TaaS UI | A logged-in user session; can manage their own org's resources |
+| **TaaS API Token = LiteLLM Virtual Key** | TaaS UI `API Tokens` (or `POST /tokens`) | Client → LiteLLM `/v1/*` | One key, scoped to a model allow-list + budget + RPM/TPM |
+| **LiteLLM Master Key** | Helm secret `secrets.litellmMasterKey` | Operators → LiteLLM admin endpoints (`/key`, `/model`, `/team`) | Full LiteLLM control — never give to clients |
+| **Provider key (optional)** | Whoever owns the upstream (OpenAI, Anthropic, …) | Set when you `POST /model/new` an upstream-managed model | Real money — encrypted in DB by `master_key`, or referenced via `os.environ/<VAR>` |
+
+For self-hosted vLLM (the default in `deploy-local-k8s.sh`), the provider
+key is a placeholder — vLLM doesn't enforce it.
+
+---
+
+## API overview
+
+Two distinct surfaces.
+
+### TaaS Gateway (Go) — control plane
+
+| Group | Endpoints | Purpose |
+|---|---|---|
+| Auth | `POST /auth/{register,login,refresh,logout,change-password}`, `GET /auth/me` | User session management |
+| Organizations | `CRUD /organizations`, `/{id}/members` | Multi-tenancy — maps 1:1 to a LiteLLM Team |
+| Models | `CRUD /models`, `POST /models/{id}/deploy`, `/undeploy` | Register a model, deploy / undeploy as DGD/DGDR |
+| Deployments | `GET /models/{id}/deployments` | Per-model deployment status, endpoints |
+| Tokens | `CRUD /tokens`, `POST /tokens/{id}/rotate` | Issue/rotate/revoke TaaS API Tokens (= LiteLLM virtual keys) |
+| Sharing | `GET/POST/DELETE /models/{id}/shares` | Share a model across organizations |
+| Usage | `GET /usage/{summary,by-model,by-token,timeseries}` | Org-scoped usage analytics |
+| Billing | `GET /billing/{current,invoices}`, `/invoices/{id}` | Period and invoice views |
+| Admin | `GET /admin/users`, `PUT /admin/users/{id}/quota`, `GET /admin/system/health` | Platform admin |
+
+All control-plane endpoints take JWT (cookie or `Authorization: Bearer`).
+Full reference: [docs/api-guide.md](docs/api-guide.md).
+
+### LiteLLM Proxy — data plane
+
+| Group | Examples | Auth |
+|---|---|---|
+| Inference | `POST /v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `GET /v1/models` | Virtual key (`sk-…`) |
+| Admin | `POST /key/{generate,update,delete}`, `/model/{new,update,delete}`, `/team/{new,update}` | Master key |
+| Health / introspection | `GET /health/{liveliness,readiness}`, `/key/info` | Mixed |
+
+LiteLLM docs: <https://docs.litellm.ai/docs/proxy/quick_start>.
+
+---
+
+## Project structure
 
 ```
 taas/
-├── api/
-│   └── openapi.yaml              # OpenAPI 3.0 specification
+├── api/openapi.yaml                  # OpenAPI 3.0 (TaaS Gateway only)
 ├── cmd/
-│   ├── gateway/main.go           # API Gateway entry point
-│   ├── auth/main.go              # Auth service entry point
-│   ├── token-manager/main.go     # Token Manager entry point
-│   └── billing/main.go           # Billing service entry point
+│   ├── gateway/                      # Main Go service: HTTP + NATS publisher/consumer
+│   ├── auth/  token-manager/  billing/  # Single-binary microservices (optional)
 ├── internal/
-│   ├── auth/                     # Authentication, JWT, RBAC, rate limiting, blocklist
-│   ├── token/                    # API token CRUD, validation, caching
-│   ├── model/                    # Model registry, deployment, sharing
-│   ├── proxy/                    # Inference proxy to Dynamo, SSE streaming
-│   ├── billing/                  # Usage collection (NATS), cost calculation, handler
-│   ├── dynamo/                   # NVIDIA Dynamo HTTP client
-│   ├── quota/                    # Rate limiter (Redis sliding window)
-│   ├── audit/                    # Structured audit logging
-│   └── monitoring/               # Prometheus metrics definitions
-├── pkg/
-│   ├── config/                   # Configuration (Viper, TAAS_* env vars)
-│   ├── errors/                   # Typed error handling
-│   └── middleware/               # HTTP middleware (logging, recovery, CORS, request ID)
-├── proto/
-│   └── taas.proto                # gRPC protobuf definitions
+│   ├── auth/        token/   model/        # Domain services
+│   ├── litellm/                              # LiteLLM admin client + sync helpers
+│   ├── natsutil/                             # JetStream stream + subscribe helpers
+│   ├── proxy/  dynamo/                      # Inference proxy (legacy path) + Dynamo HTTP client
+│   ├── billing/  quota/   audit/   monitoring/
+├── pkg/                              # Shared: config, errors, middleware
+├── proto/taas.proto                  # gRPC contract
 ├── python/
-│   ├── dynamo_operator/          # K8s operator for Dynamo worker lifecycle
-│   ├── model_registry/           # Model storage and validation
-│   └── sla_monitor/              # SLA compliance monitoring
+│   ├── dynamo_operator/              # NATS-driven DGD/DGDR operator
+│   │   ├── main.py                   # Lifespan: nats subscribe + DGD watcher
+│   │   ├── k8s_nvidia_dgd.py         # NvidiaDgdClient: build/apply CR, ensure svc, watch
+│   │   └── config.py                 # Settings: CRD group/version, runtime image, …
+│   ├── model_registry/  sla_monitor/
 ├── migrations/
-│   ├── 001_initial_schema.up.sql
-│   ├── 001_initial_schema.down.sql
-│   ├── 002_audit_log.up.sql
-│   └── 002_audit_log.down.sql
+│   ├── 001_initial_schema.{up,down}.sql
+│   ├── 002_audit_log.{up,down}.sql
+│   ├── 003_organizations.{up,down}.sql
+│   ├── 004_litellm_integration.{up,down}.sql
+│   └── 004_models_hf_model.{up,down}.sql
 ├── deploy/
 │   ├── docker/
-│   │   ├── Dockerfile
-│   │   ├── Dockerfile.python
+│   │   ├── Dockerfile                # Go services
+│   │   ├── Dockerfile.python         # Operator / model registry / sla monitor
+│   │   ├── Dockerfile.web            # nginx + vite build
+│   │   ├── nginx.web.default.conf
 │   │   └── docker-compose.dev.yaml
-│   ├── helm/taas/                # Helm chart (Chart.yaml, values.yaml, templates/)
-│   └── k8s/                      # Raw K8s manifests (CRDs, namespace)
-├── web/                          # React + TypeScript dashboard
-│   ├── src/
-│   │   ├── pages/                # Dashboard, Login, Models, Tokens, Usage
-│   │   ├── components/           # Shared UI components
-│   │   └── api/client.ts         # API client
-│   └── vite.config.ts
-├── test/
-│   ├── e2e/                      # End-to-end tests
-│   └── load/                     # k6 load tests (auth, inference, rate limiting)
+│   ├── helm/taas/                    # Single chart, many values flavors
+│   │   ├── values.yaml
+│   │   ├── values-local.yaml         # Single-node, CPU-only dev
+│   │   ├── values-local-gpu-dev.yaml # Local + real Dynamo on GPU
+│   │   ├── values-fullstack-l20.yaml # Single-host L20 demo
+│   │   ├── values-nvidia-dynamo.yaml # Upstream NVIDIA Dynamo flavor
+│   │   └── templates/                # Operator, gateway, web, LiteLLM, NATS, …
+│   ├── extras/                       # Standalone DGD/DGDR sample manifests
+│   └── k8s/                          # Raw CRDs / namespace
+├── web/                              # React + TS dashboard
+│   └── src/
+│       ├── pages/                    # Login, Register, Dashboard, Models, ModelDetail,
+│       │                             # Tokens, Usage, Organizations, Profile
+│       ├── components/               # DeployForm (DGD/DGDR), Toast, Skeleton, …
+│       ├── api/client.ts             # Typed API client
+│       └── vite-env.d.ts             # VITE_API_URL / VITE_LITELLM_PUBLIC_URL
 ├── scripts/
-│   └── setup-dev.sh              # Dev environment bootstrap
-├── docs/
-│   ├── architecture/             # Architecture, data model, Dynamo integration
-│   ├── api-guide.md              # API usage guide with curl examples
-│   ├── deployment.md             # Production deployment guide
-│   └── runbook/operations.md     # Operations runbook
-├── Makefile                      # Build, test, lint, Docker, Helm targets
-├── go.mod / go.sum
-└── .github/workflows/ci.yml     # CI pipeline (lint, test, build, e2e)
+│   ├── setup-dev.sh                  # Install tools, start deps
+│   ├── deploy-local-k8s.sh           # One-shot local K8s install (this README's main path)
+│   ├── install-nvidia-dynamo.sh      # Install upstream nvidia-dynamo helm chart
+│   ├── bind-taas-dynamo-frontend.sh  # Wire gateway to a pre-existing Dynamo Frontend
+│   ├── e2e-mock.sh   seed.sh
+├── test/{e2e,load}/
+├── docs/{api-guide.md, deployment.md, architecture/, runbook/}
+├── Makefile  go.mod  go.sum  .golangci.yml
+└── .github/workflows/ci.yml
 ```
 
-## Development Setup
+---
+
+## Development setup
 
 ### Prerequisites
 
 - **Go** 1.23+
-- **Docker** & Docker Compose
-- **kubectl** and **Helm** (for K8s deployment)
-- **golangci-lint** (installed automatically by `setup-dev.sh`)
+- **Node.js** 20+ (for `web/`)
+- **Docker** (or Podman) and **Docker Compose**
+- **kubectl** + **Helm** for the k8s path
+- **Python** 3.11+ for the operator (managed via `uv pip install -r requirements.txt`)
+- **golangci-lint** (installed automatically by `scripts/setup-dev.sh`)
 
-### Local Development
+### Bootstrap
 
 ```bash
-# Automated setup (installs tools, starts deps, downloads modules)
-bash scripts/setup-dev.sh
+bash scripts/setup-dev.sh   # installs tools, starts deps, downloads modules
+make build                  # build all Go binaries
+make lint test              # lint + unit tests
+```
 
-# Or manually:
-# 1. Start dependencies
-make docker-up
+### Run gateway against local deps
 
-# 2. Build all services
-make build
-
-# 3. Run the gateway locally
+```bash
 export TAAS_DATABASE_URL="postgres://taas:taas@localhost:5432/taas?sslmode=disable"
 export TAAS_REDIS_URL="redis://localhost:6379"
 export TAAS_NATS_URL="nats://localhost:4222"
@@ -215,106 +419,141 @@ export TAAS_JWT_SIGNING_KEY="dev-secret-key-at-least-32-chars-long"
 ./bin/gateway
 ```
 
-### Running Tests
+### Web
 
 ```bash
-make test              # Unit tests with race detector
-make test-coverage     # Generate HTML coverage report
-make test-e2e          # End-to-end tests (requires running services)
-make test-load         # k6 load tests
-make lint              # golangci-lint
+cd web && npm ci && npm run dev    # vite dev server with /api proxy to gateway
 ```
 
-### Useful Make Targets
+### Useful Make targets
 
 | Target | Description |
 |--------|-------------|
 | `make build` | Build all Go service binaries |
-| `make build-gateway` | Build only the gateway |
-| `make docker-up` | Start full dev environment (all services + deps) |
-| `make docker-down` | Stop dev environment and remove volumes |
-| `make docker-build` | Build all Docker images |
-| `make helm-lint` | Lint Helm charts |
-| `make helm-template` | Render Helm templates (dry run) |
-| `make migrate-up` | Run database migrations |
-| `make clean` | Remove build artifacts |
+| `make docker-build` | Build all Docker images (gateway + python services) |
+| `make docker-up` / `down` | Start / stop the docker-compose dev stack |
+| `make helm-lint` / `helm-template` | Lint / dry-run the chart |
+| `make migrate-up` | Run DB migrations against `TAAS_DATABASE_URL` |
+| `make test` / `test-coverage` / `test-load` | Unit tests, HTML coverage, k6 load |
+| `make dev-deps` | Postgres + Redis + NATS only (no app services) |
+
+---
+
+## Configuration
+
+All gateway / operator config is via `TAAS_*` and `LITELLM_*` environment
+variables (or the helm `values-*.yaml`).
+
+### Gateway
+
+| Variable | Default | Notes |
+|---|---|---|
+| `TAAS_PORT` | `8080` | HTTP listen port |
+| `TAAS_DATABASE_URL` | required | Postgres DSN |
+| `TAAS_REDIS_URL` | required | Redis URL |
+| `TAAS_NATS_URL` | optional | If set, deploy events + status flow via NATS JetStream |
+| `TAAS_JWT_SIGNING_KEY` | required | ≥32 chars |
+| `TAAS_JWT_EXPIRY_SECONDS` | `3600` | Access token TTL |
+| `TAAS_DYNAMO_FRONTEND_URL` | optional | Only needed for the legacy direct-proxy path; with LiteLLM enabled this is auto-resolved per deployment |
+| `TAAS_CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed by the API |
+| `TAAS_OTLP_ENDPOINT` | optional | OpenTelemetry collector endpoint |
+| `TAAS_LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
+
+### LiteLLM integration (gateway side)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `LITELLM_ENABLED` | `false` | When `true`, gateway syncs models + tokens to LiteLLM |
+| `LITELLM_PROXY_URL` | derived | Internal URL of LiteLLM (`http://<release>-litellm:4000` in helm) |
+| `LITELLM_MASTER_KEY` | required when enabled | LiteLLM admin key — same value used by helm `secrets.litellmMasterKey` |
+| `LITELLM_WEBHOOK_SECRET` | optional | Reserved for future inbound webhooks |
+
+### Dynamo Operator
+
+| Variable | Default | Notes |
+|---|---|---|
+| `TAAS_OPERATOR_K8S_ENABLED` | `false` | When `false`, operator just publishes a mock `running` event for dev |
+| `TAAS_OPERATOR_CRD_MODE` | `nvidia_dgd` | Currently only NVIDIA DGD is implemented |
+| `TAAS_DYNAMO_NAMESPACE` | `dynamo` | Namespace where DGD CRs are created |
+| `TAAS_NVIDIA_DGD_RUNTIME_IMAGE` | `nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1` | Worker image |
+| `TAAS_NVIDIA_DGD_HF_SECRET_NAME` | `hf-token-secret` | K8s Secret with `HF_TOKEN` for gated models |
+| `TAAS_NVIDIA_HF_MODEL_DEFAULT` | `Qwen/Qwen3-0.6B` | Fallback when a model has no source value |
+
+Full reference (including all NVIDIA-specific knobs and the full LiteLLM
+config map): [docs/deployment.md](docs/deployment.md#environment-variables-reference).
+
+---
 
 ## Deployment
 
-TaaS ships with a Helm chart for Kubernetes deployment. See the full [Deployment Guide](docs/deployment.md).
-
-### Quick Helm Install
-
 ```bash
-# Add dependency repos
+# Add subchart repos (once)
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
+helm dep update deploy/helm/taas
 
-# Install TaaS
-helm upgrade --install taas deploy/helm/taas \
-  --namespace taas \
-  --create-namespace \
+# Pick a flavor and install
+helm upgrade --install taas-local deploy/helm/taas \
+  -n taas-local --create-namespace \
+  -f deploy/helm/taas/values-local.yaml \
   --set secrets.jwtSigningKey="$(openssl rand -base64 48)" \
-  --set secrets.dbPassword="<your-db-password>" \
-  --set secrets.redisPassword="<your-redis-password>" \
-  --set gateway.ingress.hosts[0].host=api.yourdomain.com \
-  --set image.tag=0.1.0
+  --set secrets.dbPassword="$(openssl rand -base64 24)" \
+  --set secrets.litellmMasterKey="sk-litellm-master-$(openssl rand -hex 8)"
 ```
 
-### Key Environment Variables
+Available `values-*.yaml` flavors:
 
-All configuration is via `TAAS_*` environment variables (or YAML config files):
+| Flavor | What it gives you |
+|---|---|
+| `values-local.yaml` | Single-node CPU dev: gateway + web + LiteLLM + Postgres + Redis + embedded NATS, mock Dynamo (no GPU) |
+| `values-local-gpu-dev.yaml` | Above + operator in K8s mode, talks to a real `dynamo` namespace |
+| `values-fullstack-l20.yaml` | Single-host L20 demo (real GPU, prometheus stack) |
+| `values-nvidia-dynamo.yaml` | Upstream NVIDIA Dynamo flavor |
+| `values-dev.yaml` | CI / staging-style cloud cluster |
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TAAS_PORT` | HTTP listen port | `8080` |
-| `TAAS_DATABASE_URL` | PostgreSQL connection string | *(required)* |
-| `TAAS_REDIS_URL` | Redis connection string | *(required)* |
-| `TAAS_NATS_URL` | NATS server URL | *(optional)* |
-| `TAAS_JWT_SIGNING_KEY` | JWT signing key (≥32 chars) | *(required)* |
-| `TAAS_JWT_EXPIRY_SECONDS` | Access token TTL | `3600` |
-| `TAAS_DYNAMO_FRONTEND_URL` | NVIDIA Dynamo Frontend URL | *(required for inference)* |
-| `TAAS_LOG_LEVEL` | Log level (debug/info/warn/error) | `info` |
-| `TAAS_OTLP_ENDPOINT` | OpenTelemetry collector endpoint | *(optional)* |
+For real deployment notes, secret rotation, observability dashboards and
+runbooks: [docs/deployment.md](docs/deployment.md) and
+[docs/runbook/operations.md](docs/runbook/operations.md).
 
-Full environment variable reference: [docs/deployment.md](docs/deployment.md#environment-variables-reference)
-
-## Contributing
-
-We welcome contributions! Here's how to get started:
-
-1. **Fork** the repository and create a feature branch from `master`
-2. **Set up** local development: `bash scripts/setup-dev.sh`
-3. **Make changes** — follow existing code style and patterns
-4. **Test** your changes: `make lint test`
-5. **Commit** with [Conventional Commits](https://www.conventionalcommits.org/) format:
-   - `feat: add model versioning API`
-   - `fix: correct rate limit window calculation`
-   - `docs: update deployment guide`
-6. **Open a Pull Request** with a clear description of the change
-
-### Code Guidelines
-
-- Go code must pass `golangci-lint` with the project's `.golangci.yml` config
-- All exported functions need doc comments
-- New features require unit tests; bug fixes require regression tests
-- Database changes need up *and* down migration files
-- API changes must update `api/openapi.yaml`
-
-### Reporting Issues
-
-Use GitHub Issues. Include:
-- Steps to reproduce
-- Expected vs. actual behavior
-- TaaS version, Go version, and environment details
+---
 
 ## Documentation
 
-- **[API Guide](docs/api-guide.md)** — Complete API usage with curl examples
-- **[Deployment Guide](docs/deployment.md)** — Production K8s deployment
-- **[Operations Runbook](docs/runbook/operations.md)** — Troubleshooting and emergency procedures
-- **[Architecture](docs/architecture/ARCHITECTURE.md)** — System design and data flows
-- **[Data Model](docs/architecture/DATA_MODEL.md)** — Database schema and Redis structures
+- **[API Guide](docs/api-guide.md)** — control-plane API with curl examples
+- **[Deployment Guide](docs/deployment.md)** — production K8s deployment
+- **[Operations Runbook](docs/runbook/operations.md)** — troubleshooting, on-call
+- **[Architecture](docs/architecture/ARCHITECTURE.md)** — system design + data flows
+- **[Data Model](docs/architecture/DATA_MODEL.md)** — DB schema + Redis structures
+
+---
+
+## Contributing
+
+1. Fork and create a feature branch from `master`
+2. `bash scripts/setup-dev.sh`
+3. Make the change. Follow existing patterns; keep gateway logic in `internal/`
+4. `make lint test` (and add tests for new behavior)
+5. Commit with [Conventional Commits](https://www.conventionalcommits.org/):
+   `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `style:`, `optimize:`
+6. Open a PR with a clear description and the user-visible impact
+
+### Code guidelines
+
+- Go: passes `golangci-lint` with the project `.golangci.yml`
+- All exported functions get doc comments
+- New features need unit tests; bug fixes need regression tests
+- DB changes ship `up` *and* `down` migrations
+- API changes update `api/openapi.yaml`
+
+### Reporting issues
+
+GitHub Issues. Include:
+
+- Steps to reproduce
+- Expected vs actual behavior
+- TaaS version, Go version, environment (cluster type, GPU, …)
+
+---
 
 ## License
 

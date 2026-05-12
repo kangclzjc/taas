@@ -1,0 +1,37 @@
+# NVIDIA DynamoGraphDeploymentRequest — small Qwen3 model on vLLM (aggregated path after profiling).
+# Requires: dynamo-platform installed, hf-token-secret in same namespace (optional for public models).
+#
+# Apply:
+#   export RELEASE_VERSION=1.0.1   # match dynamo-platform chart / nvcr image tag
+#   envsubst < deploy/extras/nvidia-dynamo-dgdr-qwen3-vllm.yaml | kubectl apply -f - -n dynamo-system
+#
+# L20: if DGDR stays in Pending (hardware discovery), uncomment the `hardware:` block and set gpuSku from:
+#   kubectl get nodes -o json | jq -r '.items[].status.allocatable["nvidia.com/gpu"]'
+#   kubectl describe node <gpu-node> | grep -E 'nvidia.com/gpu.product|Labels'
+#
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeploymentRequest
+metadata:
+  name: qwen3-06b-vllm-taas
+spec:
+  model: Qwen/Qwen3-0.6B
+  backend: vllm
+  image: "nvcr.io/nvidia/ai-dynamo/dynamo-frontend:${RELEASE_VERSION}"
+  searchStrategy: rapid
+  autoApply: true
+  # Uncomment if your GPU nodes use the standard NVIDIA taint:
+  # overrides:
+  #   profilingJob:
+  #     template:
+  #       spec:
+  #         containers: []
+  #         tolerations:
+  #           - key: nvidia.com/gpu
+  #             operator: Exists
+  #             effect: NoSchedule
+  #
+  # Uncomment and adjust for L20 if admission rejects the request (namespace-scoped operator / no discovery):
+  # hardware:
+  #   numGpusPerNode: 1
+  #   gpuSku: "NVIDIA-L20"
+  #   vramMb: 49152

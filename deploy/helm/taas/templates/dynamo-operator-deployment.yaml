@@ -29,9 +29,12 @@ spec:
         - name: dynamo-operator
           image: {{ include "taas.image" (dict "repo" .Values.dynamoOperator.image.repository "root" .) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.dynamoOperator.service.port }}
           env:
             - name: TAAS_NATS_URL
-              value: {{ .Values.nats.url | default "nats://taas-nats:4222" }}
+              value: {{ include "taas.natsUrl" . | quote }}
             - name: TAAS_POSTGRES_DSN
               valueFrom:
                 secretKeyRef:
@@ -42,6 +45,32 @@ spec:
                 secretKeyRef:
                   name: taas-redis-secret
                   key: redis-url
+            - name: TAAS_OPERATOR_K8S_ENABLED
+              value: {{ ternary "true" "false" .Values.dynamoOperator.operatorK8sEnabled | quote }}
+            - name: TAAS_OPERATOR_CRD_MODE
+              value: {{ .Values.dynamoOperator.operatorCrdMode | quote }}
+            - name: TAAS_DYNAMO_NAMESPACE
+              value: {{ .Values.dynamoOperator.dynamoNamespace | quote }}
+            - name: TAAS_MOCK_INFERENCE_BASE_URL
+              value: {{ .Values.dynamoOperator.mockInferenceBaseUrl | quote }}
+            - name: TAAS_DYNAMO_FRONTEND_SERVICE_PORT
+              value: {{ .Values.dynamoOperator.dynamoFrontendServicePort | quote }}
+            - name: TAAS_NVIDIA_DGD_GROUP
+              value: {{ .Values.dynamoOperator.nvidiaDgdGroup | quote }}
+            - name: TAAS_NVIDIA_DGD_VERSION
+              value: {{ .Values.dynamoOperator.nvidiaDgdVersion | quote }}
+            - name: TAAS_NVIDIA_DGD_PLURAL
+              value: {{ .Values.dynamoOperator.nvidiaDgdPlural | quote }}
+            - name: TAAS_NVIDIA_DGD_RUNTIME_IMAGE
+              value: {{ .Values.dynamoOperator.nvidiaDgdRuntimeImage | quote }}
+            - name: TAAS_NVIDIA_DGD_HF_SECRET_NAME
+              value: {{ .Values.dynamoOperator.nvidiaDgdHfSecretName | quote }}
+            - name: TAAS_NVIDIA_HF_MODEL_DEFAULT
+              value: {{ .Values.dynamoOperator.nvidiaHfModelDefault | quote }}
+            - name: TAAS_NVIDIA_FRONTEND_URL_TEMPLATE
+              value: {{ .Values.dynamoOperator.nvidiaFrontendUrlTemplate | quote }}
+            - name: TAAS_NVIDIA_RESOLVE_FRONTEND_VIA_K8S
+              value: {{ ternary "true" "false" .Values.dynamoOperator.nvidiaResolveFrontendViaK8s | quote }}
           resources:
             {{- toYaml .Values.dynamoOperator.resources | nindent 12 }}
           securityContext:

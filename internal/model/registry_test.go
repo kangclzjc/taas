@@ -61,6 +61,14 @@ func (m *mockRepo) ListDeployments(_ context.Context, _ uuid.UUID) ([]*Deploymen
 	return nil, nil
 }
 
+func (m *mockRepo) SetDeploymentLiteLLMID(_ context.Context, id uuid.UUID, litellmModelID string) error {
+	if d, ok := m.deployments[id]; ok {
+		d.LiteLLMModelID = litellmModelID
+		return nil
+	}
+	return fmt.Errorf("deployment not found")
+}
+
 func TestDeploy_Success(t *testing.T) {
 	repo := newMockRepo()
 	svc := NewService(repo)
