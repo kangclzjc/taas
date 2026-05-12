@@ -68,7 +68,7 @@ flowchart LR
     GW -- "SQL" --> PG
     LL -- "SQL" --> PG
 
-    LL -- "openai/&lt;model&gt;" --> DGD
+    LL -- "openai/{model}" --> DGD
     DGD --> GPU
 ```
 
@@ -104,7 +104,7 @@ sequenceDiagram
     GW->>GW: update deployment row (status=running)
     GW->>LL: POST /model/new (api_base, model, headers)
     LL-->>GW: 200 OK
-    Note over U,LL: Model now callable as model="<slug>" via virtual key
+    Note over U,LL: Model now callable as model={slug} via virtual key
 ```
 
 ### Calling the model (every request, sync)
@@ -119,7 +119,7 @@ sequenceDiagram
 
     C->>LL: POST /v1/chat/completions<br/>Authorization: Bearer sk-…
     LL->>LL: validate virtual key<br/>(models, budget, RPM/TPM)
-    LL->>DGD: forward (api_base, model="openai/&lt;hf-id&gt;")
+    LL->>DGD: forward (api_base, model="openai/{hf-id}")
     DGD->>W: route (KV-aware) to prefill/decode workers
     W-->>DGD: stream tokens
     DGD-->>LL: stream response
