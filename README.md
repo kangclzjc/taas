@@ -133,6 +133,22 @@ without touching TaaS Go services.
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| **Sign in** — JWT cookie auth, with self-service registration link | ![Sign in](docs/images/login.png) |
+| **Dashboard** — per-org usage, request counts, spend, active tokens | ![Dashboard](docs/images/dashboard.png) |
+| **Models** — list + filter; per-row Deploy / Delete actions | ![Models](docs/images/models.png) |
+| **Deploy a model** — DGDR (auto-optimize) vs DGD (direct deploy), backend (vLLM/SGLang/TRT-LLM), GPU type, TP/PP, replicas — translated to NVIDIA DGD CR | ![Deploy form](docs/images/deploy-form.png) |
+| **API Tokens** — TaaS-issued, synced to LiteLLM as virtual keys with per-key budget / RPM | ![API Tokens](docs/images/tokens.png) |
+
+> Screenshots are kept in [`docs/images/`](docs/images/). Some pages
+> (Login, Models, Tokens) still show the previous theme; the Deploy
+> form reflects the current NVIDIA-inspired design system.
+
+---
+
 ## Key Features
 
 | | |
