@@ -1,0 +1,67 @@
+{{- if .Values.nats.embedded.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-nats
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "nats" "root" .) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-nats
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "nats" "root" .) | nindent 8 }}
+    spec:
+      containers:
+        - name: nats
+          image: {{ .Values.nats.embedded.image | quote }}
+          args:
+            - "-js"
+            - "-m"
+            - "8222"
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-nats
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "nats" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4222
+      targetPort: client
+      name: client
+    - port: 8222
+      targetPort: monitor
+      name: monitor
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-nats
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

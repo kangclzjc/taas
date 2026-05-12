@@ -67,5 +67,59 @@ Image reference helper.
 Usage: {{ include "taas.image" (dict "repo" .Values.gateway.image.repository "root" .) }}
 */}}
 {{- define "taas.image" -}}
-{{- printf "%s/%s:%s" .root.Values.global.imageRegistry .repo .root.Values.image.tag }}
+{{- if .root.Values.global.imageRegistry -}}
+{{- printf "%s/%s:%s" .root.Values.global.imageRegistry .repo .root.Values.image.tag -}}
+{{- else -}}
+{{- printf "%s:%s" .repo .root.Values.image.tag -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+PostgreSQL service hostname (Bitnami subchart default).
+*/}}
+{{- define "taas.postgresqlHost" -}}
+{{- printf "%s-postgresql" .Release.Name -}}
+{{- end }}
+
+{{/*
+Redis service hostname (Bitnami subchart default master service).
+*/}}
+{{- define "taas.redisHost" -}}
+{{- printf "%s-redis-master" .Release.Name -}}
+{{- end }}
+
+{{/*
+Embedded/external NATS URL.
+*/}}
+{{- define "taas.natsUrl" -}}
+{{- if .Values.nats.embedded.enabled -}}
+{{- printf "nats://%s-nats:4222" (include "taas.fullname" .) -}}
+{{- else -}}
+{{- .Values.nats.url -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Web nginx config (SPA + /api proxy to gateway).
+*/}}
+{{- define "taas.web.nginx.conf" -}}
+server {
+    listen {{ .Values.web.containerPort }};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://{{ include "taas.fullname" . }}-gateway:{{ .Values.gateway.service.port }}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
 {{- end }}

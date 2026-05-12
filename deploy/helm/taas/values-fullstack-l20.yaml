@@ -1,0 +1,114 @@
+# Single-node “full pipeline” profile for E2E on one GPU host (e.g. L20).
+# - Gateway: production (NATS deploy events + operator), inference → in-cluster mock Dynamo.
+#
+# To keep TAAS_ENV=development but still use NATS + operator (no fake “running”), use instead:
+#   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh
+#   and values-local-gpu-dev.yaml (see that file for real Dynamo Frontend URLs).
+# - Dynamo operator: K8s CRD path OFF; mock path publishes deployment.status.updated (no NVIDIA CRDs).
+# - Prometheus scrapes gateway + operator metrics.
+#
+# Deploy:
+#   FULLSTACK=1 ./scripts/deploy-local-k8s.sh
+#   # or: helm upgrade ... -f deploy/helm/taas/values-local.yaml -f deploy/helm/taas/values-fullstack-l20.yaml
+#
+# UI: http://<node-ip>:30080  ·  Prometheus: kubectl port-forward -n taas-local svc/taas-local-prometheus 9090:9090
+#
+# Real NVIDIA Dynamo on L20: install upstream Dynamo + CRDs, set dynamoOperator.operatorK8sEnabled: true,
+# gateway.useClusterMockDynamo: false, gateway.dynamoFrontendUrl to your real frontend, and disable mockDynamo.
+
+global:
+  imageRegistry: ""
+
+image:
+  tag: local
+  pullPolicy: Never
+
+secrets:
+  autoCreate: true
+  jwtSigningKey: "dev-local-jwt-signing-key-min-32-chars!!"
+  dbPassword: "taaslocaldb"
+  redisPassword: "taaslocalredis"
+
+gateway:
+  envName: production
+  replicaCount: 1
+  dynamoFrontendUrl: ""
+  useClusterMockDynamo: true
+  autoscaling:
+    enabled: false
+  ingress:
+    enabled: false
+
+web:
+  enabled: true
+  replicaCount: 1
+  hostPort: 30080
+  service:
+    type: ClusterIP
+    port: 8080
+
+auth:
+  enabled: false
+
+tokenManager:
+  enabled: false
+
+billing:
+  enabled: false
+
+mockDynamo:
+  enabled: true
+
+prometheus:
+  enabled: true
+
+dynamoOperator:
+  enabled: true
+  operatorK8sEnabled: false
+
+modelRegistry:
+  enabled: false
+
+slaMonitor:
+  enabled: false
+
+nats:
+  url: ""
+  embedded:
+    enabled: true
+
+postgresql:
+  readReplicas:
+    replicaCount: 0
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+redis:
+  architecture: standalone
+  master:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+networkPolicy:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+observability:
+  otlpEndpoint: ""

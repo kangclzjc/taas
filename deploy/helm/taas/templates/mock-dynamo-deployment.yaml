@@ -1,0 +1,69 @@
+{{- if .Values.mockDynamo.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taas.fullname" . }}-mock-dynamo
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "mock-dynamo" "root" .) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "taas.name" . }}-mock-dynamo
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "taas.serviceLabels" (dict "service" "mock-dynamo" "root" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: mock-dynamo
+          image: {{ include "taas.image" (dict "repo" .Values.mockDynamo.image.repository "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mockDynamo.containerPort }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mockDynamo.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taas.fullname" . }}-mock-dynamo
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "mock-dynamo" "root" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.mockDynamo.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "taas.name" . }}-mock-dynamo
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
