@@ -27,73 +27,109 @@ What you can do end-to-end, today:
 ## Architecture
 
 TaaS splits cleanly into a **control plane** (TaaS' own services) and a
-**data plane** (LiteLLM proxy in front of NVIDIA Dynamo). The control plane
-never sits on the inference hot path.
+**data plane** (LiteLLM in front of NVIDIA Dynamo). The control plane never
+sits on the inference hot path; the two planes communicate asynchronously
+through NATS JetStream.
 
+### Components
+
+```mermaid
+flowchart LR
+    subgraph clients["Clients"]
+        UI["Web UI<br/>(admin)"]
+        SDK["OpenAI SDK / curl<br/>(inference)"]
+    end
+
+    subgraph control["Control Plane"]
+        GW["TaaS Gateway<br/>(Go)"]
+        OP["Dynamo Operator<br/>(Python)"]
+        NATS[("NATS JetStream<br/>stream: TAAS_EVENTS")]
+    end
+
+    subgraph data["Data Plane"]
+        LL["LiteLLM Proxy"]
+        DGD["NVIDIA Dynamo<br/>Frontend + vLLM/SGLang<br/>workers"]
+        GPU["GPU Pool"]
+    end
+
+    PG[("PostgreSQL<br/>taas + litellm DBs")]
+
+    UI -- "JWT / cookies" --> GW
+    SDK -- "Bearer sk-…" --> LL
+
+    GW -- "publish<br/>model.deploy.requested" --> NATS
+    NATS -- "deliver" --> OP
+    OP -- "publish<br/>deployment.status.updated" --> NATS
+    NATS -- "deliver" --> GW
+
+    OP -- "create / watch CR" --> DGD
+    GW -- "POST /key /model /team<br/>(admin)" --> LL
+
+    GW -- "SQL" --> PG
+    LL -- "SQL" --> PG
+
+    LL -- "openai/{model}" --> DGD
+    DGD --> GPU
 ```
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │                                CLIENTS                                   │
-  │   Web UI (admin)        OpenAI SDK / curl (inference)                    │
-  └────────────┬───────────────────────────────────┬─────────────────────────┘
-               │ JWT / cookies                     │ Bearer <virtual key>
-               ▼                                   ▼
-  ┌────────────────────────────┐       ┌──────────────────────────────────────┐
-  │      TaaS Gateway (Go)     │       │            LiteLLM Proxy             │
-  │  /auth /tokens /models     │──────▶│        /v1/chat/completions          │
-  │  /organizations /usage     │       │        /v1/embeddings  /v1/models    │
-  │  /deployments  /admin      │       │  virtual keys, models DB, spend, RPM │
-  └────┬───────────────┬───────┘       └─────────────────┬────────────────────┘
-       │ NATS publish  │ /key /model                     │ openai/<served>
-       ▼               ▼ /team                           ▼
-  ┌────────────┐  ┌──────────────────────────┐   ┌──────────────────────────┐
-  │  NATS JS   │  │  PostgreSQL (taas + DB   │   │  NVIDIA Dynamo Frontend  │
-  │ TAAS_EVENTS│  │  litellm; users, models, │   │  (per DGD; vLLM/SGLang/  │
-  └────┬───────┘  │  tokens, deployments,    │   │   TRT-LLM workers, KV-   │
-       │ subscribe│  usage, LiteLLM metadata)│   │   aware router)          │
-       ▼          └──────────────────────────┘   └──────┬───────────────────┘
-  ┌──────────────────────────────────┐                  │ /v1/*
-  │  TaaS Dynamo Operator (Python)   │ ───────create───▶│
-  │   model.deploy.requested →       │   DynamoGraph    │
-  │     create DGD CRD               │   Deployment CR  │
-  │   watch DGD →                    │ ◀──watch state───│
-  │     deployment.status.updated    │                  │
-  └──────────────────────────────────┘                  ▼
-                                              ┌──────────────────┐
-                                              │   GPU Pool       │
-                                              └──────────────────┘
+
+NATS sits between Gateway and Operator on purpose — they never call each
+other directly. Gateway publishes intents, Operator publishes status; both
+sides are independent processes that can restart at any time without losing
+work.
+
+### Deploying a model (one-time, async)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User (Web UI)
+    participant GW as TaaS Gateway
+    participant N as NATS JetStream
+    participant OP as Dynamo Operator
+    participant K as Kubernetes (DGD CR)
+    participant LL as LiteLLM
+
+    U->>GW: POST /api/models/{id}/deploy
+    GW->>GW: insert deployment row (status=pending)
+    GW->>N: publish "model.deploy.requested"
+    GW-->>U: 200 OK (pending)
+
+    N->>OP: deliver "model.deploy.requested"
+    OP->>K: create DynamoGraphDeployment CR
+    OP->>K: ensure worker discovery Service
+    K-->>OP: scheduled, frontend + worker ready
+
+    OP->>N: publish "deployment.status.updated" (running, endpoint_url)
+    N->>GW: deliver
+    GW->>GW: update deployment row (status=running)
+    GW->>LL: POST /model/new (api_base, model, headers)
+    LL-->>GW: 200 OK
+    Note over U,LL: Model now callable as model={slug} via virtual key
 ```
 
-### End-to-end flow
+### Calling the model (every request, sync)
 
-**Provisioning a model (one time):**
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant LL as LiteLLM Proxy
+    participant DGD as Dynamo Frontend
+    participant W as vLLM Worker
 
-1. User opens the TaaS web UI and clicks **+ Create model** — picks a source
-   (`HuggingFace` / `NIM` / `Custom URI`) and a slug.
-2. User enters the model detail page and clicks **+ Deploy**, picks DGDR
-   (auto-profiling, SLA-driven) or DGD (direct deploy with explicit
-   TP/PP/replicas), GPU type, etc.
-3. TaaS Gateway persists the `Deployment` row and publishes
-   `model.deploy.requested` to NATS JetStream.
-4. **TaaS Dynamo Operator** consumes the message, builds and applies a
-   `DynamoGraphDeployment` CR in the `dynamo` namespace, ensures the worker
-   discovery Service (with ownerReferences so it isn't GC'd), and watches the
-   CR.
-5. When the DGD reports `Ready=True / state=successful`, the operator
-   publishes `deployment.status.updated` to NATS.
-6. Gateway updates the deployment status to `running` and **registers the
-   model in LiteLLM** via `/model/new` — passing the upstream HF id derived
-   from the model's source field.
+    C->>LL: POST /v1/chat/completions<br/>Authorization: Bearer sk-…
+    LL->>LL: validate virtual key<br/>(models, budget, RPM/TPM)
+    LL->>DGD: forward (api_base, model="openai/{hf-id}")
+    DGD->>W: route (KV-aware) to prefill/decode workers
+    W-->>DGD: stream tokens
+    DGD-->>LL: stream response
+    LL-->>C: stream response
+    LL->>LL: record spend on virtual key (and its team)
+```
 
-**Calling the model (every request):**
-
-1. Client sends `POST /v1/chat/completions` to LiteLLM with
-   `Authorization: Bearer <virtual key>`.
-2. LiteLLM validates the virtual key (models allow-list, budget, RPM/TPM),
-   resolves `model: <slug>` to the registered Dynamo Frontend, forwards the
-   request.
-3. Dynamo routes to prefill/decode workers (KV-aware), streams the response
-   back through LiteLLM to the client.
-4. LiteLLM records spend against the virtual key (and its team).
+The Gateway is **not** in the inference hot path — once a deployment is
+registered with LiteLLM, every `/v1/*` call goes Client → LiteLLM → Dynamo
+without touching TaaS Go services.
 
 ---
 
