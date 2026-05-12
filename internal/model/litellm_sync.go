@@ -3,12 +3,35 @@ package model
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/taas-platform/taas/internal/litellm"
 )
+
+// defaultUpstreamModel mirrors python/dynamo_operator settings.nvidia_hf_model_default.
+// It is the model that vLLM frontend serves when the model record has no explicit storage URI.
+const defaultUpstreamModel = "Qwen/Qwen3-0.6B"
+
+// upstreamModelName resolves the model identifier that the inference backend (vLLM/SGLang/...) actually
+// serves under, mirroring python/dynamo_operator/k8s_nvidia_dgd.py:_hf_model. Plain HuggingFace ids look
+// like "org/name"; URI-style storage (s3://, gs://, nim://) cannot be served as-is, so we fall back to
+// the platform default to avoid 404s from the upstream when LiteLLM forwards the request.
+func upstreamModelName(m *Model) string {
+	uri := strings.TrimSpace(m.StorageURI)
+	if uri == "" {
+		return defaultUpstreamModel
+	}
+	if strings.Contains(uri, "://") {
+		return defaultUpstreamModel
+	}
+	if !strings.Contains(uri, "/") {
+		return defaultUpstreamModel
+	}
+	return uri
+}
 
 // LiteLLMService wraps the base model Service and syncs deployments with LiteLLM Proxy.
 //
@@ -60,13 +83,13 @@ func (s *LiteLLMService) OnDeploymentRunning(ctx context.Context, deploymentID u
 		return fmt.Errorf("model %s not found", d.ModelID)
 	}
 
-	// Register in LiteLLM: model slug becomes the user-facing model name
-	// LiteLLM routes requests for this model name to the Dynamo endpoint
+	upstream := upstreamModelName(m)
 	req := litellm.AddModelRequest{
 		ModelName: m.Slug,
 		LiteLLMParams: litellm.ModelParams{
-			Model:   "openai/" + m.Slug,  // LiteLLM uses "openai/" prefix for OpenAI-compatible backends
+			Model:   "openai/" + upstream,
 			APIBase: endpointURL,
+			APIKey:  "sk-no-key-required",
 			ExtraHeaders: map[string]string{
 				"X-Tenant-ID":     d.OrgID.String(),
 				"X-Org-ID":        d.OrgID.String(),
@@ -97,6 +120,7 @@ func (s *LiteLLMService) OnDeploymentRunning(ctx context.Context, deploymentID u
 
 	s.logger.Info("model registered in LiteLLM",
 		zap.String("model_slug", m.Slug),
+		zap.String("upstream_model", upstream),
 		zap.String("endpoint", endpointURL),
 		zap.String("litellm_model_id", resp.ModelID),
 		zap.String("deployment_id", deploymentID.String()),

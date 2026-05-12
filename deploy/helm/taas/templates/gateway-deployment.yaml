@@ -48,25 +48,46 @@ spec:
               protocol: TCP
           env:
             - name: TAAS_ENV
-              value: {{ .Release.Namespace }}
-            - name: AUTH_SERVICE_URL
-              value: "http://{{ include "taas.fullname" . }}-auth:{{ .Values.auth.service.port }}"
-            - name: TOKEN_MANAGER_URL
-              value: "http://{{ include "taas.fullname" . }}-token-manager:{{ .Values.tokenManager.service.port }}"
-            - name: BILLING_SERVICE_URL
-              value: "http://{{ include "taas.fullname" . }}-billing:{{ .Values.billing.service.port }}"
-            - name: REDIS_URL
+              value: {{ .Values.gateway.envName | quote }}
+            - name: TAAS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: database-url
+            - name: TAAS_REDIS_URL
               valueFrom:
                 secretKeyRef:
                   name: taas-redis-secret
                   key: redis-url
-            - name: OTLP_ENDPOINT
-              value: {{ .Values.observability.otlpEndpoint }}
-            - name: JWT_SIGNING_KEY
+            - name: TAAS_NATS_URL
+              value: {{ include "taas.natsUrl" . | quote }}
+            - name: TAAS_OTLP_ENDPOINT
+              value: {{ .Values.observability.otlpEndpoint | quote }}
+            - name: TAAS_JWT_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
                   name: taas-secrets
                   key: jwt-signing-key
+            - name: TAAS_DYNAMO_FRONTEND_URL
+              value: {{ .Values.gateway.dynamoFrontendUrl | quote }}
+            - name: TAAS_CORS_ALLOWED_ORIGINS
+              value: {{ join "," .Values.gateway.corsAllowedOrigins | quote }}
+            - name: LITELLM_ENABLED
+              value: {{ ternary "true" "false" .Values.litellm.enabled | quote }}
+            - name: LITELLM_PROXY_URL
+              value: {{ .Values.gateway.litellmProxyUrl | default (printf "http://%s-litellm:%d" (include "taas.fullname" .) (.Values.litellm.service.port | int)) | quote }}
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: litellm-master-key
+                  optional: true
+            - name: LITELLM_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: taas-secrets
+                  key: litellm-webhook-secret
+                  optional: true
           livenessProbe:
             httpGet:
               path: /health
