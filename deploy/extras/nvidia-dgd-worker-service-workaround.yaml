@@ -1,0 +1,34 @@
+# Legacy workaround when dynamo-platform does not create a Service for VllmDecodeWorker:
+# TaaS dynamo-operator (nvidia_dgd) now creates this Service automatically after each DGD reconcile.
+# Keep this file for manual fixes on old releases or if auto-create is disabled.
+#
+# Original issue:
+# Kubernetes discovery needs a ready EndpointSlice *and* DynamoWorkerMetadata. Without a Service,
+# no worker EndpointSlice exists and the Frontend lists 0 backends (/v1/chat/completions -> 404).
+#
+# Replace GRAPH_NAME with your DynamoGraphDeployment metadata.name (e.g. dgd-e816120c1f8c4b0d9cebcc9a).
+# Replace WORKER_HASH with nvidia.com/current-worker-hash annotation on that DGD (e.g. 1a34aba0).
+#
+# After apply, wait for EndpointSlice; Frontend /health should show non-empty instances.
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: GRAPH_NAME-vllmdecodeworker-WORKER_HASH
+#   namespace: dynamo
+#   labels:
+#     nvidia.com/dynamo-component: VllmDecodeWorker
+#     nvidia.com/dynamo-component-type: worker
+#     nvidia.com/dynamo-graph-deployment-name: GRAPH_NAME
+#     nvidia.com/dynamo-namespace: dynamo-GRAPH_NAME
+#     nvidia.com/dynamo-discovery-backend: kubernetes
+#     nvidia.com/dynamo-discovery-enabled: "true"
+# spec:
+#   selector:
+#     nvidia.com/dynamo-component: VllmDecodeWorker
+#     nvidia.com/dynamo-component-type: worker
+#     nvidia.com/dynamo-namespace: dynamo-GRAPH_NAME
+#   ports:
+#     - name: system
+#       port: 9090
+#       targetPort: system

@@ -1,0 +1,36 @@
+{{- if and .Values.dynamoOperator.enabled .Values.dynamoOperator.operatorK8sEnabled (eq .Values.dynamoOperator.operatorCrdMode "nvidia_dgd") .Values.dynamoOperator.nvidiaDgdComponentRbac }}
+# DGD Frontend/worker pods use the dynamo-platform component ServiceAccount. With DYN_DISCOVERY_BACKEND=kubernetes
+# they must list/watch EndpointSlices and CRUD DynamoWorkerMetadata in the same namespace as the graph.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "taas.fullname" . }}-dgd-k8s-discovery
+  namespace: {{ .Values.dynamoOperator.dynamoNamespace | quote }}
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "dynamo-operator" "root" .) | nindent 4 }}
+rules:
+  - apiGroups: ["nvidia.com"]
+    resources: ["dynamoworkermetadatas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "taas.fullname" . }}-dgd-k8s-discovery
+  namespace: {{ .Values.dynamoOperator.dynamoNamespace | quote }}
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "dynamo-operator" "root" .) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "taas.fullname" . }}-dgd-k8s-discovery
+subjects:
+{{- range .Values.dynamoOperator.nvidiaDgdComponentServiceAccountNames }}
+  - kind: ServiceAccount
+    name: {{ . | quote }}
+    namespace: {{ $.Values.dynamoOperator.dynamoNamespace | quote }}
+{{- end }}
+{{- end }}

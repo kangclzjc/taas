@@ -1,0 +1,50 @@
+{{- if .Values.dynamoOperator.enabled }}
+{{- if .Values.dynamoOperator.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "taas.fullname" . }}-dynamo-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "dynamo-operator" "root" .) | nindent 4 }}
+{{- end }}
+{{- if and .Values.dynamoOperator.rbac.create .Values.dynamoOperator.operatorK8sEnabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "taas.fullname" . }}-dynamo-operator
+  namespace: {{ .Values.dynamoOperator.dynamoNamespace }}
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "dynamo-operator" "root" .) | nindent 4 }}
+rules:
+{{- if eq .Values.dynamoOperator.operatorCrdMode "nvidia_dgd" }}
+  - apiGroups: ["nvidia.com"]
+    resources: ["dynamographdeployments"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+{{- else }}
+  - apiGroups: ["dynamo.nvidia.com"]
+    resources: ["dynamoworkers"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "taas.fullname" . }}-dynamo-operator
+  namespace: {{ .Values.dynamoOperator.dynamoNamespace }}
+  labels:
+    {{- include "taas.serviceLabels" (dict "service" "dynamo-operator" "root" .) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "taas.fullname" . }}-dynamo-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "taas.fullname" . }}-dynamo-operator
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

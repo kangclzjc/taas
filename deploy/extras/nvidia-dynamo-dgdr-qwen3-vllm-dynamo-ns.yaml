@@ -1,0 +1,30 @@
+# DEPRECATED for L20/profiling issues: prefer DynamoGraphDeployment — see nvidia-dynamo-dgd-vllm-agg-dynamo-ns.yaml
+#
+# Qwen3 on vLLM in namespace `dynamo`. GPU taint toleration for profiling jobs.
+# If your nodes are L20-only: some dynamo-frontend versions discover "NVIDIA-L20" but the profiler enum
+# only allows gb200_sxm/h200_sxm/h100_sxm/b200_sxm/a100_sxm/l40s — profiling may fail until NVIDIA fixes
+# that mismatch or you upgrade dynamo-platform. Use a working DGDR/Frontend from your environment, then
+# run scripts/bind-taas-dynamo-frontend.sh.
+#
+#   export RELEASE_VERSION=1.0.1
+#   envsubst < deploy/extras/nvidia-dynamo-dgdr-qwen3-vllm-dynamo-ns.yaml | kubectl apply -f -
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeploymentRequest
+metadata:
+  name: qwen3-06b-vllm-taas
+  namespace: dynamo
+spec:
+  model: Qwen/Qwen3-0.6B
+  backend: vllm
+  image: "nvcr.io/nvidia/ai-dynamo/dynamo-frontend:${RELEASE_VERSION}"
+  searchStrategy: rapid
+  autoApply: true
+  overrides:
+    profilingJob:
+      template:
+        spec:
+          containers: []
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
