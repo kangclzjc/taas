@@ -11,6 +11,7 @@ import DeployForm from '../components/DeployForm';
 //  2) build-time env VITE_LITELLM_PUBLIC_URL
 //  3) heuristic: same protocol/hostname as the TaaS UI, with port 4001 (the dev SSH-tunnel default)
 const LITELLM_BASE_STORAGE_KEY = 'taas.litellm_base_url';
+const MODEL_DETAIL_REFRESH_MS = 5000;
 
 function defaultLitellmBase(): string {
   if (typeof window === 'undefined') return 'http://127.0.0.1:4001';
@@ -117,12 +118,16 @@ export default function ModelDetailPage() {
     queryKey: ['model', id],
     queryFn: () => models.get(id!),
     enabled: !!id,
+    refetchInterval: MODEL_DETAIL_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 
   const { data: deploymentsData, isLoading: deploymentsLoading } = useQuery({
     queryKey: ['model-deployments', id],
     queryFn: () => models.getDeployments(id!),
     enabled: !!id,
+    refetchInterval: MODEL_DETAIL_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 
   const deployMutation = useMutation({

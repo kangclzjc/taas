@@ -6,6 +6,8 @@ import { SkeletonTable } from '../components/LoadingSkeleton';
 import EmptyState from '../components/EmptyState';
 import { useToast } from '../components/Toast';
 
+const MODELS_REFRESH_MS = 10000;
+
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     ready: 'badge-success',
@@ -47,6 +49,8 @@ export default function ModelsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['models', showPublic],
     queryFn: () => models.list(showPublic ? { public: true } : undefined),
+    refetchInterval: MODELS_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 
   const createMutation = useMutation({
