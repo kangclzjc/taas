@@ -132,6 +132,14 @@ class DgdRendererTest(unittest.TestCase):
         self.assertIn("prefill", prefill_args)
         self.assertNotIn("--disaggregation-mode", decode_args)
         self.assertIn("--kv-transfer-config", decode_args)
+        self.assertEqual(
+            services["VllmPrefillWorker"]["extraPodSpec"]["mainContainer"]["volumeMounts"],
+            [{"name": "hf-model-cache", "mountPath": "/home/dynamo/.cache/huggingface/hub"}],
+        )
+        self.assertEqual(
+            services["VllmDecodeWorker"]["extraPodSpec"]["mainContainer"]["volumeMounts"],
+            [{"name": "hf-model-cache", "mountPath": "/home/dynamo/.cache/huggingface/hub"}],
+        )
 
         planner = services["Planner"]["extraPodSpec"]
         planner_args = planner["mainContainer"]["args"]
@@ -145,6 +153,16 @@ class DgdRendererTest(unittest.TestCase):
         self.assertEqual(cfg["profile_results_dir"], "/workspace/profiling_results")
         self.assertEqual(cfg["global_planner_namespace"], "dynamo-system-gp-ctrl")
         self.assertEqual(planner["volumes"][0]["configMap"]["name"], "planner-profile-data-dgd-7b8c3a9a1e374a449f1ba2c4")
+        self.assertEqual(
+            planner["mainContainer"]["volumeMounts"],
+            [
+                {
+                    "name": "planner-profile-data-dgd-7b8c3a9a1e374a449f1ba2c4",
+                    "mountPath": "/workspace/profiling_results",
+                    "readOnly": True,
+                }
+            ],
+        )
 
     def test_render_vllm_disaggregated_dgd_can_bypass_global_planner(self) -> None:
         settings = self.settings()

@@ -247,8 +247,8 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
                         disaggregation_mode=disagg_mode,
                         kv_transfer=True,
                     ),
+                    "volumeMounts": [_cache_volume_mount()],
                 },
-                "volumeMounts": [_cache_volume_mount()],
             },
         }
 
@@ -291,14 +291,14 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
                 "image": str(_setting(settings, "nvidia_dgd_planner_image", image)),
                 "command": ["python3", "-m", "dynamo.planner"],
                 "args": ["--config", json.dumps(planner_config, separators=(",", ":"))],
+                "volumeMounts": [
+                    {
+                        "name": profile_cm,
+                        "mountPath": "/workspace/profiling_results",
+                        "readOnly": True,
+                    }
+                ],
             },
-            "volumeMounts": [
-                {
-                    "name": profile_cm,
-                    "mountPath": "/workspace/profiling_results",
-                    "readOnly": True,
-                }
-            ],
         },
     }
 
