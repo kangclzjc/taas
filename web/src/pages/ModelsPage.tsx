@@ -46,7 +46,7 @@ export default function ModelsPage() {
     return value;
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['models', showPublic],
     queryFn: () => models.list(showPublic ? { public: true } : undefined),
     refetchInterval: MODELS_REFRESH_MS,
@@ -170,6 +170,16 @@ export default function ModelsPage() {
         <div className="table-wrapper">
           {isLoading ? (
             <SkeletonTable rows={5} cols={7} />
+          ) : isError ? (
+            <div style={{ padding: 24, textAlign: 'center' }}>
+              <p className="text-danger" style={{ marginBottom: 8 }}>Failed to load models.</p>
+              <p className="text-muted" style={{ marginBottom: 12, fontSize: 13 }}>
+                {error instanceof Error ? error.message : 'Unknown API error'}
+              </p>
+              <button className="btn btn-sm" onClick={() => refetch()}>
+                Retry
+              </button>
+            </div>
           ) : !data?.items?.length ? (
             <EmptyState
               icon="🤖"
