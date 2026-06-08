@@ -138,7 +138,7 @@ dynamoOperator:
   nvidiaHfModelDefault: Qwen/Qwen3-0.6B
   nvidiaFrontendUrlTemplate: "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
   nvidiaResolveFrontendViaK8s: true
-  nvidiaDgdPlannerEnvironment: kubernetes
+  nvidiaDgdPlannerEnvironment: global-planner
   globalPlannerNamespace: dynamo-system-gp-ctrl
   metricPullingPrometheusEndpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   nvidiaDgdComponentRbac: true
