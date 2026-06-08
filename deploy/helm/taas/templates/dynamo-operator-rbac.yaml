@@ -25,6 +25,9 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
 {{- else }}
   - apiGroups: ["dynamo.nvidia.com"]
     resources: ["dynamoworkers"]
