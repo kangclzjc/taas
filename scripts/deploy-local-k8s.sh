@@ -13,11 +13,12 @@
 #
 # Dev gateway + real Dynamo on cluster (no simulated "running"; still TAAS_ENV=development):
 #   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh
-# Uses values-local-gpu-dev.yaml: operator creates DynamoGraphDeployment in dynamoNamespace (default `dynamo`).
+# Uses values-local-gpu-dev.yaml: operator creates DynamoGraphDeployment in dynamoNamespace
+# (default `dynamo-system` for the L20 validation cluster).
 # After deploy, set gateway.dynamoFrontendUrl or run scripts/bind-taas-dynamo-frontend.sh for /v1 proxying.
 #
 # Extra arguments are passed through to `helm upgrade --install`, e.g.:
-#   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh --set dynamoOperator.dynamoNamespace=dynamo-system
+#   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh --set dynamoOperator.dynamoNamespace=<namespace>
 
 set -euo pipefail
 
