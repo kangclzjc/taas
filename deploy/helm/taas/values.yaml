@@ -138,12 +138,15 @@ dynamoOperator:
   nvidiaHfModelDefault: Qwen/Qwen3-0.6B
   nvidiaFrontendUrlTemplate: "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
   nvidiaResolveFrontendViaK8s: true
+  nvidiaDgdPlannerEnvironment: kubernetes
   globalPlannerNamespace: dynamo-system-gp-ctrl
   metricPullingPrometheusEndpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   nvidiaDgdComponentRbac: true
-  # ServiceAccounts that DGD frontend/worker pods run under. NVIDIA's DGD operator places these pods on
-  # `dynamo-platform-dynamo-operator-component` by default; we keep `dgd-components` for backward compatibility
-  # with older charts where users overrode the SA name.
+  # ServiceAccounts that DGD component pods run under. The Planner sidecar needs DGD patch/update
+  # rights when nvidiaDgdPlannerEnvironment=kubernetes; frontend/worker pods need Kubernetes
+  # discovery rights. NVIDIA's DGD operator places these pods on
+  # `dynamo-platform-dynamo-operator-component` by default; we keep `dgd-components` for backward
+  # compatibility with older charts where users overrode the SA name.
   nvidiaDgdComponentServiceAccountNames:
     - dynamo-platform-dynamo-operator-component
     - dgd-components

@@ -21,6 +21,7 @@ Supported now:
 - GPU count and tensor parallel size
 - dtype, max model length, environment variables, and extra vLLM args
 - Kubernetes discovery via `DYN_DISCOVERY_BACKEND=kubernetes`
+- local Planner autoscaling via `environment: "kubernetes"` for the single-model spike
 
 Intentionally not in Phase 1:
 

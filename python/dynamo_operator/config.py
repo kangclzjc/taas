@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     nvidia_hf_model_default: str = "Qwen/Qwen3-0.6B"
     nvidia_frontend_url_template: str = "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
     nvidia_resolve_frontend_via_k8s: bool = True
+    nvidia_dgd_planner_environment: str = "kubernetes"
     global_planner_namespace: str = "dynamo-system-gp-ctrl"
     metric_pulling_prometheus_endpoint: str = "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
 

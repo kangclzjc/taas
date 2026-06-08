@@ -16,6 +16,7 @@ class DgdRendererTest(unittest.TestCase):
             nvidia_dgd_runtime_image="nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.1.1",
             nvidia_dgd_hf_secret_name="hf-token-secret",
             nvidia_hf_model_default="Qwen/Qwen3-0.6B",
+            nvidia_dgd_planner_environment="kubernetes",
             global_planner_namespace="dynamo-system-gp-ctrl",
             metric_pulling_prometheus_endpoint="http://prometheus:9090",
         )
@@ -136,12 +137,13 @@ class DgdRendererTest(unittest.TestCase):
         planner_args = planner["mainContainer"]["args"]
         self.assertEqual(planner_args[0], "--config")
         cfg = json.loads(planner_args[1])
+        self.assertEqual(cfg["environment"], "kubernetes")
         self.assertEqual(cfg["optimization_target"], "sla")
         self.assertEqual(cfg["backend"], "vllm")
         self.assertEqual(cfg["mode"], "disagg")
         self.assertEqual(cfg["throughput_metrics_source"], "frontend")
         self.assertEqual(cfg["profile_results_dir"], "/workspace/profiling_results")
-        self.assertEqual(cfg["global_planner_namespace"], "dynamo-system-gp-ctrl")
+        self.assertNotIn("global_planner_namespace", cfg)
         self.assertEqual(planner["volumes"][0]["configMap"]["name"], "planner-profile-data-dgd-7b8c3a9a1e374a449f1ba2c4")
 
     def test_render_profile_config_map_for_disaggregated_planner(self) -> None:

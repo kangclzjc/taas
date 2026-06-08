@@ -31,6 +31,7 @@ dynamoOperator:
   mockInferenceBaseUrl: ""
   nvidiaDgdRuntimeImage: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.1.1
   nvidiaDgdPlannerImage: nvcr.io/nvidia/ai-dynamo/dynamo-planner:1.1.1
+  nvidiaDgdPlannerEnvironment: kubernetes
   globalPlannerNamespace: dynamo-system-gp-ctrl
   metricPullingPrometheusEndpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   # Present on clusters with dynamo-platform + hf-token-secret (override to "" if unused)

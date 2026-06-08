@@ -252,9 +252,9 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
             },
         }
 
+    planner_environment = str(_setting(settings, "nvidia_dgd_planner_environment", "kubernetes")).strip() or "kubernetes"
     planner_config = {
-        "environment": "global-planner",
-        "global_planner_namespace": str(_setting(settings, "global_planner_namespace", "dynamo-system-gp-ctrl")),
+        "environment": planner_environment,
         "backend": "vllm",
         "mode": "disagg",
         "optimization_target": "sla",
@@ -277,6 +277,10 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
             )
         ),
     }
+    if planner_environment == "global-planner":
+        planner_config["global_planner_namespace"] = str(
+            _setting(settings, "global_planner_namespace", "dynamo-system-gp-ctrl")
+        )
     planner: dict[str, Any] = {
         "componentType": "planner",
         "replicas": 1,
