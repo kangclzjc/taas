@@ -207,7 +207,7 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
 
         {/* ── SLA / Planner Targets ─────────────────── */}
         <FormSection title={isDGDR ? 'SLA Targets & Workload Profile' : 'Planner Autoscaling Targets'}>
-          <div style={{ display: 'grid', gridTemplateColumns: isDGDR ? '1fr 1fr 1fr 1fr' : '1fr 1fr auto', gap: 12, marginBottom: 12, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isDGDR ? '1fr 1fr 1fr 1fr' : '1fr 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
             <FormField label="TTFT target (ms)">
               <input type="number" className="form-input" min={0} step={10}
                 value={config.target_ttft_ms} onChange={(e) => set('target_ttft_ms', +e.target.value)} />
@@ -227,23 +227,7 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
                     value={config.output_sequence_length} onChange={(e) => set('output_sequence_length', +e.target.value)} />
                 </FormField>
               </>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => {
-                  setConfig((prev) => ({
-                    ...prev,
-                    replicas_max: Math.max(prev.replicas_max ?? 1, 4),
-                    target_ttft_ms: 500,
-                    target_itl_ms: 50,
-                  }));
-                }}
-                style={{ height: 40, whiteSpace: 'nowrap' }}
-              >
-                Scale-up demo
-              </button>
-            )}
+            ) : null}
           </div>
           {isDGDR && (
             <FormField label="Search strategy">
