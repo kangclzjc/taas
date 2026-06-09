@@ -283,6 +283,8 @@ export const models = {
   },
   deploy: async (id: string, config: DeploymentConfig) =>
     normalizeDeployment(await request<Record<string, unknown>>(`/models/${id}/deploy`, { method: 'POST', body: JSON.stringify(config) })),
+  deleteDeployment: (modelId: string, deploymentId: string) =>
+    request(`/models/${modelId}/deployments/${deploymentId}`, { method: 'DELETE' }),
   undeploy: (id: string) =>
     request(`/models/${id}/undeploy`, { method: 'POST' }),
   delete: (id: string) =>

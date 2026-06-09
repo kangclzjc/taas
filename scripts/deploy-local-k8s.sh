@@ -190,6 +190,16 @@ if [[ "${HAS_HF_COL}" != "1" ]]; then
     <"${ROOT}/migrations/004_models_hf_model.up.sql"
 fi
 
+HAS_DEPLOY_MODE_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
+  env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
+  "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='deployments' AND column_name='deploy_mode' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
+if [[ "${HAS_DEPLOY_MODE_COL}" != "1" ]]; then
+  echo "==> Applying incremental migration: migrations/005_deployment_dynamo_config.up.sql"
+  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
+    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 \
+    <"${ROOT}/migrations/005_deployment_dynamo_config.up.sql"
+fi
+
 if ! kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
   env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc "SELECT to_regclass('public.users');" 2>/dev/null | grep -q users; then
   echo "ERROR: table public.users missing. Auth/register will fail until migrations run on a fresh DB (see FRESH_INSTALL=1)." >&2

@@ -57,6 +57,13 @@ func (m *mockRepo) GetActiveDeployment(_ context.Context, _ uuid.UUID) (*Deploym
 func (m *mockRepo) UpdateDeploymentStatus(_ context.Context, _ uuid.UUID, _ DeploymentStatus, _, _ string) error {
 	return nil
 }
+func (m *mockRepo) StopDeployment(_ context.Context, id uuid.UUID) error {
+	if d, ok := m.deployments[id]; ok {
+		d.Status = DeploymentStopped
+		return nil
+	}
+	return fmt.Errorf("deployment not found")
+}
 func (m *mockRepo) ListDeployments(_ context.Context, _ uuid.UUID) ([]*Deployment, error) {
 	return nil, nil
 }

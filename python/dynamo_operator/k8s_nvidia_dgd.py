@@ -305,14 +305,20 @@ class NvidiaDgdClient:
         await self._delete_worker_discovery_services(deployment_id)
         await self._delete_profile_config_maps(deployment_id)
         api = await self._ensure_client()
-        await api.delete_namespaced_custom_object(
-            group=self._settings.nvidia_dgd_group,
-            version=self._settings.nvidia_dgd_version,
-            namespace=self._namespace,
-            plural=self._settings.nvidia_dgd_plural,
-            name=name,
-        )
-        logger.info("Deleted DynamoGraphDeployment %s", name)
+        try:
+            await api.delete_namespaced_custom_object(
+                group=self._settings.nvidia_dgd_group,
+                version=self._settings.nvidia_dgd_version,
+                namespace=self._namespace,
+                plural=self._settings.nvidia_dgd_plural,
+                name=name,
+            )
+            logger.info("Deleted DynamoGraphDeployment %s", name)
+        except ApiException as e:
+            if getattr(e, "status", None) == 404:
+                logger.info("DynamoGraphDeployment %s already deleted", name)
+                return
+            raise
 
     async def watch_dgd(
         self,

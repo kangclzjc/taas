@@ -32,8 +32,8 @@ function statusBadge(status: string) {
 }
 
 function modeBadge(mode: string) {
-  if (mode === 'dgd') return <span className="badge badge-info" title="Direct deploy, no profiling">⚡ DGD</span>;
-  return <span className="badge badge-warning" title="Auto-profiling, SLA-driven">🔬 DGDR</span>;
+  if (mode === 'dgdr') return <span className="badge badge-warning" title="Auto-profiling, SLA-driven">🔬 DGDR</span>;
+  return <span className="badge badge-info" title="Direct deploy, no profiling">⚡ DGD</span>;
 }
 
 function formatParams(n: number) {
@@ -102,6 +102,7 @@ export default function ModelDetailPage() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [showDeployForm, setShowDeployForm] = useState(false);
+  const [deletingDeploymentId, setDeletingDeploymentId] = useState<string | null>(null);
   const [litellmBase, setLitellmBase] = useState<string>(() => defaultLitellmBase());
 
   const saveLitellmBase = (next: string) => {
@@ -140,6 +141,24 @@ export default function ModelDetailPage() {
     },
     onError: (err: any) => {
       addToast(`Failed to deploy: ${err.message ?? 'unknown error'}`, 'error');
+    },
+  });
+
+  const deleteDeploymentMutation = useMutation({
+    mutationFn: (deploymentId: string) => models.deleteDeployment(id!, deploymentId),
+    onMutate: (deploymentId: string) => {
+      setDeletingDeploymentId(deploymentId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['model', id] });
+      queryClient.invalidateQueries({ queryKey: ['model-deployments', id] });
+      addToast('Deployment deleted', 'success');
+    },
+    onError: (err: any) => {
+      addToast(`Failed to delete deployment: ${err.message ?? 'unknown error'}`, 'error');
+    },
+    onSettled: () => {
+      setDeletingDeploymentId(null);
     },
   });
 
@@ -377,13 +396,14 @@ print(resp.choices[0].message.content)`;
                   <th>Topology</th>
                   <th>Internal Endpoint</th>
                   <th>Created</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {deployments.map((dep: any) => (
                   <tr key={dep.id}>
                     <td style={{ fontWeight: 500 }}>{dep.name || dep.id.slice(0, 8)}</td>
-                    <td>{modeBadge(dep.deploy_mode || 'dgdr')}</td>
+                    <td>{modeBadge(dep.deploy_mode || 'dgd')}</td>
                     <td><span className="badge badge-neutral">{dep.backend || 'vllm'}</span></td>
                     <td>{statusBadge(dep.status)}</td>
                     <td style={{ fontSize: 13 }}>
@@ -421,6 +441,21 @@ print(resp.choices[0].message.content)`;
                       )}
                     </td>
                     <td style={{ fontSize: 13 }}>{new Date(dep.created_at).toLocaleDateString()}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        disabled={deleteDeploymentMutation.isPending}
+                        title="Delete this deployment and clean up Dynamo resources"
+                        onClick={() => {
+                          const label = dep.name || dep.id.slice(0, 8);
+                          if (!window.confirm(`Delete deployment "${label}"? This will remove the Dynamo deployment resources.`)) return;
+                          deleteDeploymentMutation.mutate(dep.id);
+                        }}
+                      >
+                        {deletingDeploymentId === dep.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

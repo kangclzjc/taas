@@ -151,6 +151,7 @@ type Repository interface {
 	GetDeployment(ctx context.Context, id uuid.UUID) (*Deployment, error)
 	GetActiveDeployment(ctx context.Context, modelID uuid.UUID) (*Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, id uuid.UUID, status DeploymentStatus, endpointURL, errorMsg string) error
+	StopDeployment(ctx context.Context, id uuid.UUID) error
 	ListDeployments(ctx context.Context, modelID uuid.UUID) ([]*Deployment, error)
 	SetDeploymentLiteLLMID(ctx context.Context, id uuid.UUID, litellmModelID string) error
 }
@@ -213,6 +214,10 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 	if backend == "" {
 		backend = "vllm"
 	}
+	deployMode := cfg.DeployMode
+	if deployMode == "" {
+		deployMode = "dgdr"
+	}
 	tp := cfg.TensorParallelSize
 	if tp == 0 {
 		tp = 1
@@ -229,7 +234,7 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		Name:       cfg.Name,
 		Status:     DeploymentPending,
 		SLATier:    cfg.SLATier,
-		DeployMode: cfg.DeployMode,
+		DeployMode: deployMode,
 		// Hardware
 		GPUType:            cfg.GPUType,
 		GPUCountPerReplica: cfg.GPUCountPerReplica,
@@ -289,6 +294,26 @@ func (s *Service) CompleteSimulatedDeployment(ctx context.Context, deploymentID 
 // MarkDeploymentFailed marks a deployment as failed and stores an error message.
 func (s *Service) MarkDeploymentFailed(ctx context.Context, deploymentID uuid.UUID, errorMessage string) error {
 	return s.repo.UpdateDeploymentStatus(ctx, deploymentID, DeploymentFailed, "", errorMessage)
+}
+
+// DeleteDeployment stops a deployment and requests backend cleanup.
+func (s *Service) DeleteDeployment(ctx context.Context, modelID, deploymentID, orgID uuid.UUID) error {
+	d, err := s.repo.GetDeployment(ctx, deploymentID)
+	if err != nil {
+		return fmt.Errorf("get deployment: %w", err)
+	}
+	if d == nil || d.ModelID != modelID || d.OrgID != orgID {
+		return fmt.Errorf("deployment not found")
+	}
+	if s.deployPublisher != nil {
+		if err := s.deployPublisher.PublishDeleteRequested(ctx, d); err != nil {
+			return fmt.Errorf("publish deployment delete request: %w", err)
+		}
+	}
+	if err := s.repo.StopDeployment(ctx, deploymentID); err != nil {
+		return fmt.Errorf("mark deployment stopped: %w", err)
+	}
+	return nil
 }
 
 // DeployConfig holds parameters for a new model deployment.

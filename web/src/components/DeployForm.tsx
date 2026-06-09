@@ -205,27 +205,47 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
           </div>
         </FormSection>
 
-        {/* ── SLA Targets (DGDR only) ────────────────── */}
-        {isDGDR && (
-          <FormSection title="SLA Targets & Workload Profile">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-              <FormField label="TTFT target (ms)">
-                <input type="number" className="form-input" min={0} step={10}
-                  value={config.target_ttft_ms} onChange={(e) => set('target_ttft_ms', +e.target.value)} />
-              </FormField>
-              <FormField label="ITL target (ms)">
-                <input type="number" className="form-input" min={0} step={1}
-                  value={config.target_itl_ms} onChange={(e) => set('target_itl_ms', +e.target.value)} />
-              </FormField>
-              <FormField label="Input seq length">
-                <input type="number" className="form-input" min={1}
-                  value={config.input_sequence_length} onChange={(e) => set('input_sequence_length', +e.target.value)} />
-              </FormField>
-              <FormField label="Output seq length">
-                <input type="number" className="form-input" min={1}
-                  value={config.output_sequence_length} onChange={(e) => set('output_sequence_length', +e.target.value)} />
-              </FormField>
-            </div>
+        {/* ── SLA / Planner Targets ─────────────────── */}
+        <FormSection title={isDGDR ? 'SLA Targets & Workload Profile' : 'Planner Autoscaling Targets'}>
+          <div style={{ display: 'grid', gridTemplateColumns: isDGDR ? '1fr 1fr 1fr 1fr' : '1fr 1fr auto', gap: 12, marginBottom: 12, alignItems: 'end' }}>
+            <FormField label="TTFT target (ms)">
+              <input type="number" className="form-input" min={0} step={10}
+                value={config.target_ttft_ms} onChange={(e) => set('target_ttft_ms', +e.target.value)} />
+            </FormField>
+            <FormField label="ITL target (ms)">
+              <input type="number" className="form-input" min={0} step={1}
+                value={config.target_itl_ms} onChange={(e) => set('target_itl_ms', +e.target.value)} />
+            </FormField>
+            {isDGDR ? (
+              <>
+                <FormField label="Input seq length">
+                  <input type="number" className="form-input" min={1}
+                    value={config.input_sequence_length} onChange={(e) => set('input_sequence_length', +e.target.value)} />
+                </FormField>
+                <FormField label="Output seq length">
+                  <input type="number" className="form-input" min={1}
+                    value={config.output_sequence_length} onChange={(e) => set('output_sequence_length', +e.target.value)} />
+                </FormField>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  setConfig((prev) => ({
+                    ...prev,
+                    replicas_max: Math.max(prev.replicas_max ?? 1, 4),
+                    target_ttft_ms: 500,
+                    target_itl_ms: 50,
+                  }));
+                }}
+                style={{ height: 40, whiteSpace: 'nowrap' }}
+              >
+                Scale-up demo
+              </button>
+            )}
+          </div>
+          {isDGDR && (
             <FormField label="Search strategy">
               <div style={{ display: 'flex', gap: 8 }}>
                 {(['rapid', 'thorough'] as const).map((s) => (
@@ -237,8 +257,8 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
                 ))}
               </div>
             </FormField>
-          </FormSection>
-        )}
+          )}
+        </FormSection>
 
         {/* ── Disaggregated Serving ──────────────────── */}
         <FormSection title="Disaggregated Serving (Prefill/Decode Separation)">
@@ -508,6 +528,9 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
     lines.push(`      componentType: planner`);
     lines.push(`      replicas: 1`);
     lines.push(`      profileConfigMap: ${profileCm}`);
+    lines.push(`      autoscalingTargets:`);
+    lines.push(`        ttft: ${config.target_ttft_ms ?? 2000}`);
+    lines.push(`        itl: ${config.target_itl_ms ?? 200}`);
   } else {
     lines.push(`    Worker:`);
     lines.push(`      dynamoNamespace: ${ns}`);

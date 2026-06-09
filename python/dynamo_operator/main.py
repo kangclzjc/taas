@@ -107,6 +107,21 @@ async def lifespan(app: FastAPI):
                 deployments_total.labels(operation="deploy", status="failed").inc()
 
     sub = await nc.subscribe("model.deploy.requested", cb=on_deploy_requested)
+
+    async def on_delete_requested(msg: Msg) -> None:
+        try:
+            payload = json.loads(msg.data.decode())
+            deployment_id = payload["deployment_id"]
+            logger.info("delete requested", extra={"deployment_id": deployment_id, "payload": payload})
+            if settings.operator_k8s_enabled:
+                assert dgd_client is not None
+                await dgd_client.delete_for_deployment_id(deployment_id)
+            deployments_total.labels(operation="delete", status="stopped").inc()
+        except Exception:
+            logger.exception("failed to process model.deploy.delete_requested")
+            deployments_total.labels(operation="delete", status="failed").inc()
+
+    delete_sub = await nc.subscribe("model.deploy.delete_requested", cb=on_delete_requested)
     watch_task: Optional[asyncio.Task] = None
 
     if dgd_client is not None:
@@ -200,6 +215,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await sub.unsubscribe()
+        await delete_sub.unsubscribe()
         if watch_task is not None:
             watch_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

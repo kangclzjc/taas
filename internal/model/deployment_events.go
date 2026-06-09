@@ -12,6 +12,7 @@ import (
 // DeploymentPublisher emits deployment lifecycle requests to async workers/operators.
 type DeploymentPublisher interface {
 	PublishRequested(ctx context.Context, model *Model, d *Deployment, cfg DeployConfig) error
+	PublishDeleteRequested(ctx context.Context, d *Deployment) error
 }
 
 // NATSDeploymentPublisher publishes deployment requests to JetStream.
@@ -83,6 +84,28 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 			zap.String("deployment_id", d.ID.String()),
 			zap.String("model_id", d.ModelID.String()),
 			zap.String("deploy_mode", d.DeployMode),
+		)
+	}
+	return nil
+}
+
+func (p *NATSDeploymentPublisher) PublishDeleteRequested(ctx context.Context, d *Deployment) error {
+	payload := map[string]any{
+		"deployment_id": d.ID.String(),
+		"model_id":      d.ModelID.String(),
+		"org_id":        d.OrgID.String(),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal deployment delete payload: %w", err)
+	}
+	if _, err := p.js.Publish("model.deploy.delete_requested", data); err != nil {
+		return fmt.Errorf("publish model.deploy.delete_requested: %w", err)
+	}
+	if p.logger != nil {
+		p.logger.Info("published model.deploy.delete_requested",
+			zap.String("deployment_id", d.ID.String()),
+			zap.String("model_id", d.ModelID.String()),
 		)
 	}
 	return nil

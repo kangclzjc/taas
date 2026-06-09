@@ -180,6 +180,7 @@ func main() {
 	var modelLiteLLMSvc *model.LiteLLMService
 	if litellmAdmin != nil {
 		modelLiteLLMSvc = model.NewLiteLLMService(modelSvc, litellmAdmin, modelRepo, logger)
+		modelHandler.SetDeploymentDeleteHook(modelLiteLLMSvc.OnDeploymentStopped)
 		logger.Info("model service: LiteLLM model sync enabled")
 	}
 
@@ -318,6 +319,7 @@ func main() {
 		modelGroup.DELETE("/:id", auth.RequireWriteAccess(), modelHandler.DeleteModel)
 		modelGroup.POST("/:id/deploy", auth.RequireWriteAccess(), modelHandler.DeployModel)
 		modelGroup.POST("/:id/share", auth.RequireAdminAccess(), modelHandler.ShareModel)
+		modelGroup.DELETE("/:id/deployments/:deploymentId", auth.RequireWriteAccess(), modelHandler.DeleteDeployment)
 
 		billingHandler.RegisterRoutes(jwtAuth.Group("/usage"))
 
