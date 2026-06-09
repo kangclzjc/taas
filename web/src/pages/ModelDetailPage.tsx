@@ -183,7 +183,9 @@ export default function ModelDetailPage() {
     );
   }
 
-  const deployments = deploymentsData?.deployments ?? [];
+  const deployments = (deploymentsData?.deployments ?? []).filter(
+    (d: Deployment) => d.status !== 'stopped',
+  );
   const source = parseModelSource(model.storage_uri);
   const nimNotSupported = source.kind === 'nim';
   const slug = modelSlug(model);
