@@ -190,6 +190,16 @@ if [[ "${HAS_HF_COL}" != "1" ]]; then
     <"${ROOT}/migrations/004_models_hf_model.up.sql"
 fi
 
+HAS_LITELLM_MODEL_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
+  env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
+  "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='deployments' AND column_name='litellm_model_id' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
+if [[ "${HAS_LITELLM_MODEL_COL}" != "1" ]]; then
+  echo "==> Applying incremental migration: migrations/004_litellm_integration.up.sql"
+  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
+    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 \
+    <"${ROOT}/migrations/004_litellm_integration.up.sql"
+fi
+
 HAS_DEPLOY_MODE_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
   env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
   "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='deployments' AND column_name='deploy_mode' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
