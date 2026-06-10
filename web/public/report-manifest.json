@@ -1,0 +1,28 @@
+{
+  "reports": [
+    {
+      "id": "demo-run-001",
+      "title": "Qwen3-30B Dynamo Economics Report",
+      "model": "Qwen3-30B-FP8",
+      "backend": "vLLM",
+      "platform": "Dynamo",
+      "status": "synthetic",
+      "generated_at": "2026-06-09T02:55:03.189082+00:00",
+      "url": "/reports/token-economics/demo-run-001/index.html",
+      "summary_url": "/reports/token-economics/demo-run-001/economics-summary.json",
+      "headline": {
+        "sla_goodput_output_tokens_per_second": 7219.2,
+        "cost_per_1m_input_tokens_usd": 0.0769,
+        "cost_per_1m_output_tokens_usd": 0.6155,
+        "suggested_input_price_per_1m_tokens_usd": 0.3549,
+        "suggested_output_price_per_1m_tokens_usd": 2.8017,
+        "suggested_mixed_price_per_1m_tokens_usd": 0.6267,
+        "required_gpus_with_ha": 18,
+        "observed_average_gpu_count": 16,
+        "capacity_surplus_gpus": -2,
+        "perf_per_dollar": 14621428,
+        "baseline_goodput_delta_pct": 17.88
+      }
+    }
+  ]
+}
