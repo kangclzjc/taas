@@ -55,55 +55,66 @@ type deployModelRequest struct {
 	//   Dynamo runs AIConfigurator to find optimal config, then deploys. Slower but optimal.
 	// "dgd": DynamoGraphDeployment — Direct deploy with explicit config. No profiling.
 	//   User must specify exact replicas, TP/PP, image, etc. Fast but requires expertise.
-	DeployMode         string  `json:"deploy_mode"`             // "dgdr" (default) or "dgd"
+	DeployMode string `json:"deploy_mode"` // "dgdr" (default) or "dgd"
 
 	// ── Hardware ───────────────────────────────────────────────
-	GPUType            string  `json:"gpu_type"`               // GPU SKU: h200_sxm, h100_sxm, a100_sxm, etc.
-	GPUCountPerReplica int     `json:"gpu_count_per_replica"`   // GPUs per worker replica
-	NumGPUsPerNode     int     `json:"num_gpus_per_node"`       // GPUs per node (for DGDR hardware spec)
-	VRAMMb             int     `json:"vram_mb,omitempty"`       // GPU VRAM in MiB (auto-detected if omitted)
+	GPUType            string `json:"gpu_type"`              // GPU SKU: h200_sxm, h100_sxm, a100_sxm, etc.
+	GPUCountPerReplica int    `json:"gpu_count_per_replica"` // GPUs per worker replica
+	NumGPUsPerNode     int    `json:"num_gpus_per_node"`     // GPUs per node (for DGDR hardware spec)
+	VRAMMb             int    `json:"vram_mb,omitempty"`     // GPU VRAM in MiB (auto-detected if omitted)
 
 	// ── Scaling ────────────────────────────────────────────────
-	ReplicasMin        int     `json:"replicas_min"`
-	ReplicasMax        int     `json:"replicas_max"`
+	ReplicasMin        int   `json:"replicas_min"`
+	ReplicasMax        int   `json:"replicas_max"`
+	AutoscalingEnabled *bool `json:"autoscaling_enabled,omitempty"`
 
 	// ── Inference Engine ───────────────────────────────────────
-	Backend            string  `json:"backend"`                 // vllm, sglang, trtllm (default: vllm)
-	BackendImage       string  `json:"backend_image,omitempty"` // Container image override
+	Backend      string `json:"backend"`                 // vllm, sglang, trtllm (default: vllm)
+	BackendImage string `json:"backend_image,omitempty"` // Container image override
 
 	// ── Parallelism (Dynamo disaggregated serving) ─────────────
-	TensorParallelSize   int   `json:"tensor_parallel_size,omitempty"`   // TP degree (default: 1)
-	PipelineParallelSize int   `json:"pipeline_parallel_size,omitempty"` // PP degree (default: 1)
+	TensorParallelSize   int `json:"tensor_parallel_size,omitempty"`   // TP degree (default: 1)
+	PipelineParallelSize int `json:"pipeline_parallel_size,omitempty"` // PP degree (default: 1)
 
 	// ── Workload Profile (for DGDR SLA optimization) ──────────
 	InputSequenceLength  int   `json:"input_sequence_length,omitempty"`  // Expected input token length (ISL)
 	OutputSequenceLength int   `json:"output_sequence_length,omitempty"` // Expected output token length (OSL)
 
 	// ── SLA Targets (for DGDR auto-configuration) ─────────────
-	TargetTTFTMs       float64 `json:"target_ttft_ms,omitempty"`  // Time To First Token target (ms)
-	TargetITLMs        float64 `json:"target_itl_ms,omitempty"`   // Inter-Token Latency target (ms)
-	TargetTPOTMs       float64 `json:"target_tpot_ms,omitempty"`  // Time Per Output Token target (ms)
+	TargetTTFTMs float64 `json:"target_ttft_ms,omitempty"` // Time To First Token target (ms)
+	TargetITLMs  float64 `json:"target_itl_ms,omitempty"`  // Inter-Token Latency target (ms)
+	TargetTPOTMs float64 `json:"target_tpot_ms,omitempty"` // Time Per Output Token target (ms)
 
 	// ── Disaggregated Serving ─────────────────────────────────
-	DisaggEnabled      bool    `json:"disagg_enabled,omitempty"`  // Enable prefill/decode disaggregation
-	PrefillReplicas    int     `json:"prefill_replicas,omitempty"` // Number of prefill workers
-	DecodeReplicas     int     `json:"decode_replicas,omitempty"`  // Number of decode workers
-	SearchStrategy     string  `json:"search_strategy,omitempty"` // AIConfigurator strategy: rapid, thorough
+	DisaggEnabled                  bool   `json:"disagg_enabled,omitempty"`   // Enable prefill/decode disaggregation
+	PrefillReplicas                int    `json:"prefill_replicas,omitempty"` // Number of prefill workers
+	DecodeReplicas                 int    `json:"decode_replicas,omitempty"`  // Number of decode workers
+	PrefillGPUCountPerReplica      int    `json:"prefill_gpu_count_per_replica,omitempty"`
+	DecodeGPUCountPerReplica       int    `json:"decode_gpu_count_per_replica,omitempty"`
+	PrefillTensorParallelSize      int    `json:"prefill_tensor_parallel_size,omitempty"`
+	DecodeTensorParallelSize       int    `json:"decode_tensor_parallel_size,omitempty"`
+	PrefillPipelineParallelSize     int    `json:"prefill_pipeline_parallel_size,omitempty"`
+	DecodePipelineParallelSize      int    `json:"decode_pipeline_parallel_size,omitempty"`
+	PrefillBackendImage         string `json:"prefill_backend_image,omitempty"`
+	DecodeBackendImage          string `json:"decode_backend_image,omitempty"`
+	SearchStrategy              string `json:"search_strategy,omitempty"` // AIConfigurator strategy: rapid, thorough
 
 	// ── DGD-specific (direct deploy) ──────────────────────────
 	// These are only used when deploy_mode = "dgd".
-	FrontendReplicas   int     `json:"frontend_replicas,omitempty"` // Frontend HTTP server replicas
-	WorkerCommand      string  `json:"worker_command,omitempty"`    // Custom worker command override
-	DynamoNamespace    string  `json:"dynamo_namespace,omitempty"`  // Dynamo service discovery namespace
-	RouterMode         string  `json:"router_mode,omitempty"`       // "random" or "kv" (KV-aware routing)
-	EnvVars            map[string]string `json:"env_vars,omitempty"` // Extra env vars for workers
+	FrontendReplicas int               `json:"frontend_replicas,omitempty"` // Frontend HTTP server replicas
+	WorkerCommand    string            `json:"worker_command,omitempty"`    // Custom worker command override
+	DynamoNamespace  string            `json:"dynamo_namespace,omitempty"`   // Dynamo service discovery namespace
+	RouterMode       string            `json:"router_mode,omitempty"`        // "random" or "kv" (KV-aware routing)
+	EnvVars          map[string]string `json:"env_vars,omitempty"`           // Extra env vars for workers
 
 	// ── Advanced ──────────────────────────────────────────────
-	MaxBatchSize       int     `json:"max_batch_size"`
-	MaxSequenceLength  int     `json:"max_sequence_length"`      // Max context window
-	Dtype              string  `json:"dtype,omitempty"`           // fp16, bf16, fp8 (default: auto)
-	AutoApply          *bool   `json:"auto_apply,omitempty"`     // DGDR autoApply (default: true)
-	ExtraArgs          map[string]string `json:"extra_args,omitempty"` // Additional backend-specific args
+	MaxBatchSize      int               `json:"max_batch_size"`
+	MaxSequenceLength int               `json:"max_sequence_length"`  // Max context window
+	Dtype             string            `json:"dtype,omitempty"`      // fp16, bf16, fp8 (default: auto)
+	AutoApply         *bool             `json:"auto_apply,omitempty"` // DGDR autoApply (default: true)
+	ExtraArgs         map[string]string `json:"extra_args,omitempty"` // Additional backend-specific args
+	PrefillExtraArgs  map[string]string `json:"prefill_extra_args,omitempty"`
+	DecodeExtraArgs   map[string]string `json:"decode_extra_args,omitempty"`
 }
 
 type shareModelRequest struct {
@@ -278,6 +289,7 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		// Scaling
 		ReplicasMin:          req.ReplicasMin,
 		ReplicasMax:          req.ReplicasMax,
+		AutoscalingEnabled:   req.AutoscalingEnabled,
 		// Inference engine
 		Backend:              req.Backend,
 		BackendImage:         req.BackendImage,
@@ -292,10 +304,18 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		TargetITLMs:          req.TargetITLMs,
 		TargetTPOTMs:         req.TargetTPOTMs,
 		// Disaggregated serving
-		DisaggEnabled:        req.DisaggEnabled,
-		PrefillReplicas:      req.PrefillReplicas,
-		DecodeReplicas:       req.DecodeReplicas,
-		SearchStrategy:       req.SearchStrategy,
+		DisaggEnabled:                  req.DisaggEnabled,
+		PrefillReplicas:                req.PrefillReplicas,
+		DecodeReplicas:                 req.DecodeReplicas,
+		PrefillGPUCountPerReplica:      req.PrefillGPUCountPerReplica,
+		DecodeGPUCountPerReplica:       req.DecodeGPUCountPerReplica,
+		PrefillTensorParallelSize:      req.PrefillTensorParallelSize,
+		DecodeTensorParallelSize:       req.DecodeTensorParallelSize,
+		PrefillPipelineParallelSize:     req.PrefillPipelineParallelSize,
+		DecodePipelineParallelSize:      req.DecodePipelineParallelSize,
+		PrefillBackendImage:             req.PrefillBackendImage,
+		DecodeBackendImage:              req.DecodeBackendImage,
+		SearchStrategy:                  req.SearchStrategy,
 		// DGD-specific
 		FrontendReplicas:     req.FrontendReplicas,
 		WorkerCommand:        req.WorkerCommand,
@@ -308,6 +328,8 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		Dtype:                req.Dtype,
 		AutoApply:            req.AutoApply,
 		ExtraArgs:            req.ExtraArgs,
+		PrefillExtraArgs:     req.PrefillExtraArgs,
+		DecodeExtraArgs:      req.DecodeExtraArgs,
 	})
 	if err != nil {
 		h.logger.Error("deploying model", zap.Error(err))

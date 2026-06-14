@@ -123,6 +123,8 @@ class NvidiaDgdClient:
     async def _ensure_profile_config_map(self, payload: dict) -> None:
         if not bool(payload.get("disagg_enabled")):
             return
+        if payload.get("autoscaling_enabled") is False:
+            return
         core = await self._ensure_core_v1()
         body = render_profile_config_map(payload, self._namespace)
         name = body["metadata"]["name"]

@@ -46,6 +46,17 @@ def _int_at_least(payload: dict[str, Any], key: str, default: int, minimum: int 
     return max(minimum, int(payload.get(key) or default))
 
 
+def _bool_setting(payload: dict[str, Any], key: str, default: bool) -> bool:
+    value = payload.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
 def _normalize_extra_arg_key(key: str) -> str:
     key = key.strip()
     if not key:
@@ -91,6 +102,22 @@ def _runtime_image(payload: dict[str, Any], settings: Any) -> str:
     if image:
         return image
     return "nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1"
+
+
+def _component_runtime_image(payload: dict[str, Any], prefix: str, default_image: str) -> str:
+    image = (payload.get(f"{prefix}_backend_image") or "").strip()
+    return image or default_image
+
+
+def _component_extra_args(payload: dict[str, Any], prefix: str) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    global_args = payload.get("extra_args")
+    if isinstance(global_args, dict):
+        merged.update(global_args)
+    component_args = payload.get(f"{prefix}_extra_args")
+    if isinstance(component_args, dict):
+        merged.update(component_args)
+    return merged
 
 
 def _setting(settings: Any, name: str, default: Any) -> Any:
@@ -172,12 +199,16 @@ def _vllm_worker_args(
     hf_model: str,
     tensor_parallel: int,
     payload: dict[str, Any],
+    pipeline_parallel: int = 1,
+    extra_args: Any = None,
     disaggregation_mode: str | None = None,
     kv_transfer: bool = False,
 ) -> list[str]:
     args = ["--model", hf_model]
     if tensor_parallel > 1:
         args.extend(["--tensor-parallel-size", str(tensor_parallel)])
+    if pipeline_parallel > 1:
+        args.extend(["--pipeline-parallel-size", str(pipeline_parallel)])
     if disaggregation_mode:
         args.extend(["--disaggregation-mode", disaggregation_mode])
     if kv_transfer:
@@ -188,21 +219,44 @@ def _vllm_worker_args(
     max_len = int(payload.get("max_sequence_length") or 0)
     if max_len > 0:
         args.extend(["--max-model-len", str(max_len)])
-    if not payload.get("extra_args"):
+    if extra_args is None:
+        extra_args = payload.get("extra_args")
+    if not extra_args:
         args.extend(["--gpu-memory-utilization", "0.80"])
-    _append_extra_args(args, payload.get("extra_args"))
+    _append_extra_args(args, extra_args)
     return args
 
 
 def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[str, Any]:
-    """Render a single-model vLLM disaggregated DGD with Planner + profile ConfigMap."""
+    """Render a single-model vLLM disaggregated DGD.
+
+    By default, legacy payloads keep the Planner autoscaling path. New UI
+    payloads can set autoscaling_enabled=false to render a fixed profiled P/D
+    graph without Planner, GlobalPlanner, or profile ConfigMap coupling.
+    """
     hf_model = _hf_model(payload, settings)
     tensor_parallel = _int_at_least(payload, "tensor_parallel_size", 1)
+    pipeline_parallel = _int_at_least(payload, "pipeline_parallel_size", 1)
     prefill_replicas = _int_at_least(payload, "prefill_replicas", 1)
     decode_replicas = _int_at_least(payload, "decode_replicas", 1)
     frontend_replicas = _int_at_least(payload, "frontend_replicas", 1)
     gpu_count = max(_int_at_least(payload, "gpu_count_per_replica", tensor_parallel), tensor_parallel)
+    prefill_tensor_parallel = _int_at_least(payload, "prefill_tensor_parallel_size", tensor_parallel)
+    decode_tensor_parallel = _int_at_least(payload, "decode_tensor_parallel_size", tensor_parallel)
+    prefill_pipeline_parallel = _int_at_least(payload, "prefill_pipeline_parallel_size", pipeline_parallel)
+    decode_pipeline_parallel = _int_at_least(payload, "decode_pipeline_parallel_size", pipeline_parallel)
+    prefill_gpu_count = max(
+        _int_at_least(payload, "prefill_gpu_count_per_replica", gpu_count),
+        prefill_tensor_parallel,
+    )
+    decode_gpu_count = max(
+        _int_at_least(payload, "decode_gpu_count_per_replica", gpu_count),
+        decode_tensor_parallel,
+    )
+    autoscaling_enabled = _bool_setting(payload, "autoscaling_enabled", True)
     image = _runtime_image(payload, settings)
+    prefill_image = _component_runtime_image(payload, "prefill", image)
+    decode_image = _component_runtime_image(payload, "decode", image)
     env = _env_list(payload)
     secret = (settings.nvidia_dgd_hf_secret_name or "").strip()
     image_pull_secrets = _image_pull_secrets(settings)
@@ -225,25 +279,36 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
         },
     }
 
-    def worker(sub_component: str, replicas: int) -> dict[str, Any]:
+    def worker(
+        *,
+        prefix: str,
+        sub_component: str,
+        replicas: int,
+        worker_image: str,
+        worker_gpu_count: int,
+        worker_tensor_parallel: int,
+        worker_pipeline_parallel: int,
+    ) -> dict[str, Any]:
         disagg_mode = "prefill" if sub_component == "prefill" else None
         return {
             "componentType": "worker",
             "subComponentType": sub_component,
             "replicas": replicas,
-            "resources": {"limits": {"gpu": str(gpu_count)}},
+            "resources": {"limits": {"gpu": str(worker_gpu_count)}},
             "extraPodSpec": {
                 "imagePullSecrets": image_pull_secrets,
                 "volumes": [_cache_volume()],
                 "mainContainer": {
-                    "image": image,
+                    "image": worker_image,
                     "env": env,
                     "workingDir": "/workspace/examples/backends/vllm",
                     "command": ["python3", "-m", "dynamo.vllm"],
                     "args": _vllm_worker_args(
                         hf_model=hf_model,
-                        tensor_parallel=tensor_parallel,
+                        tensor_parallel=worker_tensor_parallel,
+                        pipeline_parallel=worker_pipeline_parallel,
                         payload=payload,
+                        extra_args=_component_extra_args(payload, prefix),
                         disaggregation_mode=disagg_mode,
                         kv_transfer=True,
                     ),
@@ -265,8 +330,8 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
         "ttft": float(payload.get("target_ttft_ms") or 2000),
         "itl": float(payload.get("target_itl_ms") or 200),
         "max_gpu_budget": -1,
-        "prefill_engine_num_gpu": gpu_count,
-        "decode_engine_num_gpu": gpu_count,
+        "prefill_engine_num_gpu": prefill_gpu_count,
+        "decode_engine_num_gpu": decode_gpu_count,
         "model_name": hf_model,
         "profile_results_dir": "/workspace/profiling_results",
         "metric_pulling_prometheus_endpoint": str(
@@ -304,20 +369,39 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
 
     if secret:
         frontend["envFromSecret"] = secret
-    prefill = worker("prefill", prefill_replicas)
-    decode = worker("decode", decode_replicas)
+    prefill = worker(
+        prefix="prefill",
+        sub_component="prefill",
+        replicas=prefill_replicas,
+        worker_image=prefill_image,
+        worker_gpu_count=prefill_gpu_count,
+        worker_tensor_parallel=prefill_tensor_parallel,
+        worker_pipeline_parallel=prefill_pipeline_parallel,
+    )
+    decode = worker(
+        prefix="decode",
+        sub_component="decode",
+        replicas=decode_replicas,
+        worker_image=decode_image,
+        worker_gpu_count=decode_gpu_count,
+        worker_tensor_parallel=decode_tensor_parallel,
+        worker_pipeline_parallel=decode_pipeline_parallel,
+    )
     if secret:
         prefill["envFromSecret"] = secret
         decode["envFromSecret"] = secret
 
+    services: dict[str, Any] = {
+        "Frontend": frontend,
+        "VllmPrefillWorker": prefill,
+        "VllmDecodeWorker": decode,
+    }
+    if autoscaling_enabled:
+        services["Planner"] = planner
+
     return {
         "backendFramework": "vllm",
-        "services": {
-            "Frontend": frontend,
-            "VllmPrefillWorker": prefill,
-            "VllmDecodeWorker": decode,
-            "Planner": planner,
-        },
+        "services": services,
     }
 
 

@@ -184,6 +184,62 @@ class DgdRendererTest(unittest.TestCase):
         self.assertEqual(cfg["environment"], "kubernetes")
         self.assertNotIn("global_planner_namespace", cfg)
 
+    def test_render_vllm_disaggregated_fixed_profiled_dgd_omits_planner(self) -> None:
+        body = render_vllm_agg_dgd(
+            {
+                "deployment_id": "7b8c3a9a-1e37-4a44-9f1b-a2c4e8d3f111",
+                "deploy_mode": "dgd",
+                "backend": "vllm",
+                "storage_uri": "Qwen/Qwen3-8B",
+                "disagg_enabled": True,
+                "autoscaling_enabled": False,
+                "prefill_replicas": 2,
+                "decode_replicas": 3,
+                "gpu_count_per_replica": 1,
+                "tensor_parallel_size": 1,
+                "prefill_gpu_count_per_replica": 2,
+                "decode_gpu_count_per_replica": 4,
+                "prefill_tensor_parallel_size": 2,
+                "decode_tensor_parallel_size": 4,
+                "prefill_pipeline_parallel_size": 1,
+                "decode_pipeline_parallel_size": 2,
+                "backend_image": "global/vllm:dev",
+                "prefill_backend_image": "prefill/vllm:dev",
+                "decode_backend_image": "decode/vllm:dev",
+                "extra_args": {"gpu_memory_utilization": "0.82"},
+                "prefill_extra_args": {"max-num-batched-tokens": "8192"},
+                "decode_extra_args": {"enable-prefix-caching": True},
+            },
+            self.settings(),
+            "dynamo-system",
+        )
+
+        services = body["spec"]["services"]
+        self.assertEqual(set(services), {"Frontend", "VllmPrefillWorker", "VllmDecodeWorker"})
+
+        prefill = services["VllmPrefillWorker"]
+        decode = services["VllmDecodeWorker"]
+        self.assertEqual(prefill["replicas"], 2)
+        self.assertEqual(decode["replicas"], 3)
+        self.assertEqual(prefill["resources"]["limits"]["gpu"], "2")
+        self.assertEqual(decode["resources"]["limits"]["gpu"], "4")
+
+        prefill_main = prefill["extraPodSpec"]["mainContainer"]
+        decode_main = decode["extraPodSpec"]["mainContainer"]
+        self.assertEqual(prefill_main["image"], "prefill/vllm:dev")
+        self.assertEqual(decode_main["image"], "decode/vllm:dev")
+        self.assertIn("--tensor-parallel-size", prefill_main["args"])
+        self.assertIn("2", prefill_main["args"])
+        self.assertIn("--tensor-parallel-size", decode_main["args"])
+        self.assertIn("4", decode_main["args"])
+        self.assertIn("--pipeline-parallel-size", decode_main["args"])
+        self.assertIn("2", decode_main["args"])
+        self.assertIn("--max-num-batched-tokens", prefill_main["args"])
+        self.assertIn("8192", prefill_main["args"])
+        self.assertIn("--enable-prefix-caching", decode_main["args"])
+        self.assertIn("--gpu-memory-utilization", prefill_main["args"])
+        self.assertIn("--gpu-memory-utilization", decode_main["args"])
+
     def test_render_profile_config_map_for_disaggregated_planner(self) -> None:
         cm = render_profile_config_map(
             {

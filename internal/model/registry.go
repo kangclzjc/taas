@@ -332,8 +332,9 @@ type DeployConfig struct {
 	VRAMMb             int
 
 	// Scaling
-	ReplicasMin int
-	ReplicasMax int
+	ReplicasMin        int
+	ReplicasMax        int
+	AutoscalingEnabled *bool
 
 	// Inference engine
 	Backend      string // vllm, sglang, trtllm
@@ -353,10 +354,18 @@ type DeployConfig struct {
 	TargetTPOTMs float64
 
 	// Disaggregated serving
-	DisaggEnabled   bool
-	PrefillReplicas int
-	DecodeReplicas  int
-	SearchStrategy  string // AIConfigurator: rapid or thorough
+	DisaggEnabled                  bool
+	PrefillReplicas                int
+	DecodeReplicas                 int
+	PrefillGPUCountPerReplica      int
+	DecodeGPUCountPerReplica       int
+	PrefillTensorParallelSize      int
+	DecodeTensorParallelSize       int
+	PrefillPipelineParallelSize     int
+	DecodePipelineParallelSize      int
+	PrefillBackendImage         string
+	DecodeBackendImage          string
+	SearchStrategy              string // AIConfigurator: rapid or thorough
 
 	// DGD-specific (direct deploy)
 	FrontendReplicas int               // Frontend HTTP replicas
@@ -371,4 +380,6 @@ type DeployConfig struct {
 	Dtype             string
 	AutoApply         *bool
 	ExtraArgs         map[string]string
+	PrefillExtraArgs  map[string]string
+	DecodeExtraArgs   map[string]string
 }

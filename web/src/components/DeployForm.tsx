@@ -23,6 +23,7 @@ const defaultConfig: DeploymentConfig = {
   num_gpus_per_node: 8,
   replicas_min: 1,
   replicas_max: 1,
+  autoscaling_enabled: false,
   tensor_parallel_size: 1,
   pipeline_parallel_size: 1,
   input_sequence_length: 2048,
@@ -33,6 +34,12 @@ const defaultConfig: DeploymentConfig = {
   disagg_enabled: true,
   prefill_replicas: 1,
   decode_replicas: 1,
+  prefill_gpu_count_per_replica: 1,
+  decode_gpu_count_per_replica: 1,
+  prefill_tensor_parallel_size: 1,
+  decode_tensor_parallel_size: 1,
+  prefill_pipeline_parallel_size: 1,
+  decode_pipeline_parallel_size: 1,
   frontend_replicas: 1,
   router_mode: 'kv',
   max_batch_size: 32,
@@ -48,9 +55,13 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [envRows, setEnvRows] = useState<Array<{ key: string; value: string }>>([]);
   const [extraArgRows, setExtraArgRows] = useState<Array<{ key: string; value: string }>>([]);
+  const [prefillExtraArgRows, setPrefillExtraArgRows] = useState<Array<{ key: string; value: string }>>([]);
+  const [decodeExtraArgRows, setDecodeExtraArgRows] = useState<Array<{ key: string; value: string }>>([]);
 
   const isDGDR = config.deploy_mode === 'dgdr';
   const isDGD = config.deploy_mode === 'dgd';
+  const autoscalingEnabled = isDGD ? config.autoscaling_enabled !== false : true;
+  const usesFixedDisaggReplicas = isDGD && config.disagg_enabled && !autoscalingEnabled;
 
   const set = <K extends keyof DeploymentConfig>(key: K, value: DeploymentConfig[K]) =>
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -63,6 +74,27 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
     }
     if (extraArgRows.length > 0) {
       finalConfig.extra_args = Object.fromEntries(extraArgRows.filter((r) => r.key).map((r) => [r.key, r.value]));
+    }
+    if (prefillExtraArgRows.length > 0) {
+      finalConfig.prefill_extra_args = Object.fromEntries(prefillExtraArgRows.filter((r) => r.key).map((r) => [r.key, r.value]));
+    }
+    if (decodeExtraArgRows.length > 0) {
+      finalConfig.decode_extra_args = Object.fromEntries(decodeExtraArgRows.filter((r) => r.key).map((r) => [r.key, r.value]));
+    }
+    if (finalConfig.deploy_mode !== 'dgd') {
+      delete finalConfig.autoscaling_enabled;
+      delete finalConfig.prefill_gpu_count_per_replica;
+      delete finalConfig.decode_gpu_count_per_replica;
+      delete finalConfig.prefill_tensor_parallel_size;
+      delete finalConfig.decode_tensor_parallel_size;
+      delete finalConfig.prefill_pipeline_parallel_size;
+      delete finalConfig.decode_pipeline_parallel_size;
+      delete finalConfig.prefill_backend_image;
+      delete finalConfig.decode_backend_image;
+      delete finalConfig.prefill_extra_args;
+      delete finalConfig.decode_extra_args;
+    } else if (!finalConfig.autoscaling_enabled) {
+      finalConfig.replicas_max = finalConfig.replicas_min;
     }
     onSubmit(finalConfig);
   };
@@ -191,21 +223,54 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
           </div>
         </FormSection>
 
+        {/* ── Replica Control ────────────────────────── */}
+        {isDGD && (
+          <FormSection title="Replica Control">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <ModeCard
+                icon="📌"
+                title="Fixed Profiled"
+                subtitle="Use explicit P/D replicas from a profiling run."
+                active={!autoscalingEnabled}
+                onClick={() => set('autoscaling_enabled', false)}
+              />
+              <ModeCard
+                icon="📈"
+                title="Planner Autoscaling"
+                subtitle="Let the Planner adjust replicas over time."
+                active={autoscalingEnabled}
+                onClick={() => set('autoscaling_enabled', true)}
+              />
+            </div>
+          </FormSection>
+        )}
+
         {/* ── Scaling ────────────────────────────────── */}
-        <FormSection title="Scaling">
+        {!usesFixedDisaggReplicas && (
+        <FormSection title={autoscalingEnabled ? 'Scaling Bounds' : 'Fixed Replica Defaults'}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <FormField label="Min replicas">
+            <FormField label={autoscalingEnabled ? 'Min replicas' : 'Worker replicas'}>
               <input type="number" className="form-input" min={1} max={32}
                 value={config.replicas_min} onChange={(e) => set('replicas_min', +e.target.value)} />
             </FormField>
-            <FormField label="Max replicas">
-              <input type="number" className="form-input" min={1} max={32}
-                value={config.replicas_max} onChange={(e) => set('replicas_max', +e.target.value)} />
-            </FormField>
+            {autoscalingEnabled ? (
+              <FormField label="Max replicas">
+                <input type="number" className="form-input" min={1} max={32}
+                  value={config.replicas_max} onChange={(e) => set('replicas_max', +e.target.value)} />
+              </FormField>
+            ) : (
+              <FormField label="Replica policy">
+                <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
+                  Fixed at deploy time
+                </div>
+              </FormField>
+            )}
           </div>
         </FormSection>
+        )}
 
         {/* ── SLA / Planner Targets ─────────────────── */}
+        {(isDGDR || autoscalingEnabled) && (
         <FormSection title={isDGDR ? 'SLA Targets & Workload Profile' : 'Planner Autoscaling Targets'}>
           <div style={{ display: 'grid', gridTemplateColumns: isDGDR ? '1fr 1fr 1fr 1fr' : '1fr 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
             <FormField label="TTFT target (ms)">
@@ -243,6 +308,7 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
             </FormField>
           )}
         </FormSection>
+        )}
 
         {/* ── Disaggregated Serving ──────────────────── */}
         <FormSection title="Disaggregated Serving (Prefill/Decode Separation)">
@@ -252,15 +318,33 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
             <span style={{ fontWeight: 500, fontSize: 14 }}>Enable prefill/decode separation</span>
           </label>
           {config.disagg_enabled && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <FormField label="Prefill workers">
-                <input type="number" className="form-input" min={1} max={16}
-                  value={config.prefill_replicas} onChange={(e) => set('prefill_replicas', +e.target.value)} />
-              </FormField>
-              <FormField label="Decode workers">
-                <input type="number" className="form-input" min={1} max={16}
-                  value={config.decode_replicas} onChange={(e) => set('decode_replicas', +e.target.value)} />
-              </FormField>
+            <div style={{ display: 'grid', gap: 12 }}>
+              <ComponentProfilePanel
+                title="Prefill"
+                replicas={config.prefill_replicas ?? 1}
+                gpuCount={config.prefill_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1}
+                tp={config.prefill_tensor_parallel_size ?? config.tensor_parallel_size ?? 1}
+                pp={config.prefill_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1}
+                image={config.prefill_backend_image ?? ''}
+                onReplicas={(v) => set('prefill_replicas', v)}
+                onGpuCount={(v) => set('prefill_gpu_count_per_replica', v)}
+                onTp={(v) => set('prefill_tensor_parallel_size', v)}
+                onPp={(v) => set('prefill_pipeline_parallel_size', v)}
+                onImage={(v) => set('prefill_backend_image', v || undefined)}
+              />
+              <ComponentProfilePanel
+                title="Decode"
+                replicas={config.decode_replicas ?? 1}
+                gpuCount={config.decode_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1}
+                tp={config.decode_tensor_parallel_size ?? config.tensor_parallel_size ?? 1}
+                pp={config.decode_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1}
+                image={config.decode_backend_image ?? ''}
+                onReplicas={(v) => set('decode_replicas', v)}
+                onGpuCount={(v) => set('decode_gpu_count_per_replica', v)}
+                onTp={(v) => set('decode_tensor_parallel_size', v)}
+                onPp={(v) => set('decode_pipeline_parallel_size', v)}
+                onImage={(v) => set('decode_backend_image', v || undefined)}
+              />
             </div>
           )}
         </FormSection>
@@ -328,6 +412,16 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
             <FormField label="Extra backend args">
               <KVEditor rows={extraArgRows} onChange={setExtraArgRows} keyPlaceholder="--flag" valuePlaceholder="value" />
             </FormField>
+            {isDGD && config.disagg_enabled && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                <FormField label="Prefill-only backend args">
+                  <KVEditor rows={prefillExtraArgRows} onChange={setPrefillExtraArgRows} keyPlaceholder="--flag" valuePlaceholder="value" />
+                </FormField>
+                <FormField label="Decode-only backend args">
+                  <KVEditor rows={decodeExtraArgRows} onChange={setDecodeExtraArgRows} keyPlaceholder="--flag" valuePlaceholder="value" />
+                </FormField>
+              </div>
+            )}
           </FormSection>
         )}
 
@@ -376,6 +470,63 @@ function ModeCard({ icon, title, subtitle, active, onClick }: {
       <div style={{ fontSize: 24, marginBottom: 4 }}>{icon}</div>
       <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 2 }}>{title}</div>
       <div className="text-muted" style={{ fontSize: 12 }}>{subtitle}</div>
+    </div>
+  );
+}
+
+function ComponentProfilePanel({
+  title,
+  replicas,
+  gpuCount,
+  tp,
+  pp,
+  image,
+  onReplicas,
+  onGpuCount,
+  onTp,
+  onPp,
+  onImage,
+}: {
+  title: string;
+  replicas: number;
+  gpuCount: number;
+  tp: number;
+  pp: number;
+  image: string;
+  onReplicas: (value: number) => void;
+  onGpuCount: (value: number) => void;
+  onTp: (value: number) => void;
+  onPp: (value: number) => void;
+  onImage: (value: string) => void;
+}) {
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>{title} workers</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
+        <FormField label="Replicas">
+          <input type="number" className="form-input" min={1} max={64}
+            value={replicas} onChange={(e) => onReplicas(+e.target.value)} />
+        </FormField>
+        <FormField label="GPUs / replica">
+          <input type="number" className="form-input" min={1} max={16}
+            value={gpuCount} onChange={(e) => onGpuCount(+e.target.value)} />
+        </FormField>
+        <FormField label="TP">
+          <select className="form-input" value={tp} onChange={(e) => onTp(+e.target.value)}>
+            {TP_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </FormField>
+        <FormField label="PP">
+          <select className="form-input" value={pp} onChange={(e) => onPp(+e.target.value)}>
+            {PP_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </FormField>
+      </div>
+      <FormField label={`${title} image override`}>
+        <input type="text" className="form-input" value={image}
+          placeholder="Use global image"
+          onChange={(e) => onImage(e.target.value)} />
+      </FormField>
     </div>
   );
 }
@@ -458,8 +609,15 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
   // DGD preview
   const ns = config.dynamo_namespace || `taas-${config.name}`;
   const profileCm = `planner-profile-data-${config.name}`;
+  const autoscalingEnabled = config.autoscaling_enabled !== false;
+  const prefillGpu = config.prefill_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1;
+  const decodeGpu = config.decode_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1;
+  const prefillTp = config.prefill_tensor_parallel_size ?? config.tensor_parallel_size ?? 1;
+  const decodeTp = config.decode_tensor_parallel_size ?? config.tensor_parallel_size ?? 1;
+  const prefillPp = config.prefill_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1;
+  const decodePp = config.decode_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1;
   const lines = [
-    ...(config.disagg_enabled ? [
+    ...(config.disagg_enabled && autoscalingEnabled ? [
       `apiVersion: v1`,
       `kind: ConfigMap`,
       `metadata:`,
@@ -494,9 +652,13 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
     lines.push(`      replicas: ${config.prefill_replicas ?? 1}`);
     lines.push(`      resources:`);
     lines.push(`        limits:`);
-    lines.push(`          gpu: "${config.gpu_count_per_replica ?? 1}"`);
+    lines.push(`          gpu: "${prefillGpu}"`);
+    lines.push(`      parallelism:`);
+    lines.push(`        tensor: ${prefillTp}`);
+    lines.push(`        pipeline: ${prefillPp}`);
+    if (config.prefill_backend_image || config.backend_image) lines.push(`      image: "${config.prefill_backend_image || config.backend_image}"`);
     lines.push(`      args:`);
-    lines.push(`        - python3 -m dynamo.${config.backend} --model ${modelSlug} --disaggregation-mode prefill`);
+    lines.push(`        - python3 -m dynamo.${config.backend} --model ${modelSlug} --tensor-parallel-size ${prefillTp} --disaggregation-mode prefill`);
     lines.push(`    VllmDecodeWorker:`);
     lines.push(`      dynamoNamespace: ${ns}`);
     lines.push(`      componentType: worker`);
@@ -504,17 +666,25 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
     lines.push(`      replicas: ${config.decode_replicas ?? 1}`);
     lines.push(`      resources:`);
     lines.push(`        limits:`);
-    lines.push(`          gpu: "${config.gpu_count_per_replica ?? 1}"`);
+    lines.push(`          gpu: "${decodeGpu}"`);
+    lines.push(`      parallelism:`);
+    lines.push(`        tensor: ${decodeTp}`);
+    lines.push(`        pipeline: ${decodePp}`);
+    if (config.decode_backend_image || config.backend_image) lines.push(`      image: "${config.decode_backend_image || config.backend_image}"`);
     lines.push(`      args:`);
-    lines.push(`        - python3 -m dynamo.${config.backend} --model ${modelSlug}`);
-    lines.push(`    Planner:`);
-    lines.push(`      dynamoNamespace: ${ns}`);
-    lines.push(`      componentType: planner`);
-    lines.push(`      replicas: 1`);
-    lines.push(`      profileConfigMap: ${profileCm}`);
-    lines.push(`      autoscalingTargets:`);
-    lines.push(`        ttft: ${config.target_ttft_ms ?? 2000}`);
-    lines.push(`        itl: ${config.target_itl_ms ?? 200}`);
+    lines.push(`        - python3 -m dynamo.${config.backend} --model ${modelSlug} --tensor-parallel-size ${decodeTp}`);
+    if (autoscalingEnabled) {
+      lines.push(`    Planner:`);
+      lines.push(`      dynamoNamespace: ${ns}`);
+      lines.push(`      componentType: planner`);
+      lines.push(`      replicas: 1`);
+      lines.push(`      profileConfigMap: ${profileCm}`);
+      lines.push(`      autoscalingTargets:`);
+      lines.push(`        ttft: ${config.target_ttft_ms ?? 2000}`);
+      lines.push(`        itl: ${config.target_itl_ms ?? 200}`);
+    } else {
+      lines.push(`    # Fixed profiled deployment: Planner/GlobalPlanner omitted`);
+    }
   } else {
     lines.push(`    Worker:`);
     lines.push(`      dynamoNamespace: ${ns}`);

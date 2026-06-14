@@ -161,6 +161,7 @@ export interface DeploymentConfig {
   // Scaling
   replicas_min?: number;
   replicas_max?: number;
+  autoscaling_enabled?: boolean;
   // Engine
   backend?: 'vllm' | 'sglang' | 'trtllm';
   backend_image?: string;
@@ -179,6 +180,14 @@ export interface DeploymentConfig {
   disagg_enabled?: boolean;
   prefill_replicas?: number;
   decode_replicas?: number;
+  prefill_gpu_count_per_replica?: number;
+  decode_gpu_count_per_replica?: number;
+  prefill_tensor_parallel_size?: number;
+  decode_tensor_parallel_size?: number;
+  prefill_pipeline_parallel_size?: number;
+  decode_pipeline_parallel_size?: number;
+  prefill_backend_image?: string;
+  decode_backend_image?: string;
   // DGD-specific
   frontend_replicas?: number;
   worker_command?: string;
@@ -190,6 +199,8 @@ export interface DeploymentConfig {
   max_sequence_length?: number;
   dtype?: string;
   extra_args?: Record<string, string>;
+  prefill_extra_args?: Record<string, string>;
+  decode_extra_args?: Record<string, string>;
 }
 
 export interface Deployment {

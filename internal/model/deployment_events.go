@@ -66,6 +66,39 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 		"env_vars":   cfg.EnvVars,
 		"extra_args": cfg.ExtraArgs,
 	}
+	if cfg.AutoscalingEnabled != nil {
+		payload["autoscaling_enabled"] = *cfg.AutoscalingEnabled
+	}
+	if cfg.PrefillGPUCountPerReplica > 0 {
+		payload["prefill_gpu_count_per_replica"] = cfg.PrefillGPUCountPerReplica
+	}
+	if cfg.DecodeGPUCountPerReplica > 0 {
+		payload["decode_gpu_count_per_replica"] = cfg.DecodeGPUCountPerReplica
+	}
+	if cfg.PrefillTensorParallelSize > 0 {
+		payload["prefill_tensor_parallel_size"] = cfg.PrefillTensorParallelSize
+	}
+	if cfg.DecodeTensorParallelSize > 0 {
+		payload["decode_tensor_parallel_size"] = cfg.DecodeTensorParallelSize
+	}
+	if cfg.PrefillPipelineParallelSize > 0 {
+		payload["prefill_pipeline_parallel_size"] = cfg.PrefillPipelineParallelSize
+	}
+	if cfg.DecodePipelineParallelSize > 0 {
+		payload["decode_pipeline_parallel_size"] = cfg.DecodePipelineParallelSize
+	}
+	if cfg.PrefillBackendImage != "" {
+		payload["prefill_backend_image"] = cfg.PrefillBackendImage
+	}
+	if cfg.DecodeBackendImage != "" {
+		payload["decode_backend_image"] = cfg.DecodeBackendImage
+	}
+	if len(cfg.PrefillExtraArgs) > 0 {
+		payload["prefill_extra_args"] = cfg.PrefillExtraArgs
+	}
+	if len(cfg.DecodeExtraArgs) > 0 {
+		payload["decode_extra_args"] = cfg.DecodeExtraArgs
+	}
 	if cfg.AutoApply != nil {
 		payload["auto_apply"] = *cfg.AutoApply
 	}
