@@ -1,0 +1,1071 @@
+{
+  "schema_version": "0.1",
+  "generated_at": "2026-06-09T02:55:03.189082+00:00",
+  "run": {
+    "run_id": "demo-run-001",
+    "name": "Synthetic Qwen3-30B Dynamo vLLM L20 Report",
+    "platform": "Dynamo",
+    "backend": "vLLM",
+    "model_name": "Qwen3-30B-FP8",
+    "deployment_shape": "single-pool autoscaling, 16x L20",
+    "workload": {
+      "duration_seconds": 600,
+      "request_shape": "ISL 2048 / OSL 256 synthetic chat sweep",
+      "concurrency": 32,
+      "notes": "Synthetic data for report UI and formula validation."
+    },
+    "sla_targets": {
+      "ttft_ms": 2000,
+      "itl_ms": 200,
+      "e2e_latency_ms": 15000
+    },
+    "provenance": {
+      "source": "synthetic",
+      "intended_use": "demo only",
+      "aiperf_job": "synthetic-aiperf-demo",
+      "prometheus_window": "2026-05-22T08:00:00Z/2026-05-22T08:10:00Z"
+    }
+  },
+  "headline": {
+    "sla_goodput_output_tokens_per_second": {
+      "value": 7219.2,
+      "unit": "output tokens/sec"
+    },
+    "cost_per_1m_output_tokens_usd": {
+      "value": 0.6155,
+      "unit": "USD / 1M output tokens"
+    },
+    "cost_per_1m_input_tokens_usd": {
+      "value": 0.0769,
+      "unit": "USD / 1M input tokens"
+    },
+    "perf_per_dollar": {
+      "value": 14621428.0,
+      "unit": "SLA tokens / USD"
+    },
+    "perf_per_watt": {
+      "value": 749.6862,
+      "unit": "SLA TPM / watt"
+    },
+    "gpu_hours": {
+      "value": 2.6667,
+      "unit": "GPU-hours"
+    },
+    "suggested_input_price_per_1m_tokens_usd": {
+      "value": 0.3549,
+      "unit": "USD / 1M input tokens"
+    },
+    "suggested_output_price_per_1m_tokens_usd": {
+      "value": 2.8017,
+      "unit": "USD / 1M output tokens"
+    },
+    "suggested_mixed_price_per_1m_tokens_usd": {
+      "value": 0.6267,
+      "unit": "USD / 1M blended tokens"
+    },
+    "baseline_delta": {
+      "sla_goodput_output_tokens_per_second_pct": 17.88,
+      "sla_qualified_tpm_pct": 7.39,
+      "cost_per_1m_total_tokens_reduction_pct": 37.31,
+      "cost_per_1m_output_tokens_reduction_pct": 42.9,
+      "perf_per_dollar_pct": 59.51,
+      "gpu_hours_saved": 1.3333,
+      "cost_saved_usd": 1.2938
+    }
+  },
+  "throughput": {
+    "raw_tpm": {
+      "value": 4147200.0,
+      "unit": "tokens/min"
+    },
+    "raw_rpm": {
+      "value": 1800.0,
+      "unit": "requests/min"
+    },
+    "sla_qualified_tpm": {
+      "value": 3898368.0,
+      "unit": "tokens/min"
+    },
+    "sla_qualified_rpm": {
+      "value": 1692.0,
+      "unit": "requests/min"
+    },
+    "sla_goodput_output_tokens_per_second": {
+      "value": 7219.2,
+      "unit": "output tokens/sec"
+    },
+    "sla_goodput_requests_per_second": {
+      "value": 28.2,
+      "unit": "requests/sec"
+    },
+    "sla_pass_rate": {
+      "value": 0.94,
+      "unit": "ratio"
+    },
+    "error_rate": {
+      "value": 0.0027,
+      "unit": "ratio"
+    }
+  },
+  "latency": {
+    "ttft_ms": {
+      "p50": 640,
+      "p95": 1410,
+      "p99": 1880
+    },
+    "itl_ms": {
+      "p50": 44,
+      "p95": 92,
+      "p99": 138
+    },
+    "e2e_latency_ms": {
+      "p50": 3680,
+      "p95": 7820,
+      "p99": 11350
+    }
+  },
+  "cost": {
+    "currency": "USD",
+    "total_cost_usd": {
+      "value": 2.6662,
+      "unit": "USD"
+    },
+    "gpu_usage_cost_usd": {
+      "value": 2.4622,
+      "unit": "USD"
+    },
+    "measured_power_cost_usd": {
+      "value": 0.204,
+      "unit": "USD"
+    },
+    "fixed_run_cost_usd": {
+      "value": 0.0,
+      "unit": "USD"
+    },
+    "cost_per_minute_usd": {
+      "value": 0.2666,
+      "unit": "USD/min"
+    },
+    "cost_per_1m_total_tokens_usd": {
+      "value": 0.0684,
+      "unit": "USD / 1M input+output tokens"
+    },
+    "cost_per_1m_output_tokens_usd": {
+      "value": 0.6155,
+      "unit": "USD / 1M output tokens"
+    },
+    "cost_per_1m_input_tokens_usd": {
+      "value": 0.0769,
+      "unit": "USD / 1M input tokens"
+    },
+    "gpu_hour_cost_by_sku": {
+      "L20": 0.95
+    },
+    "cost_source": "cost_factors",
+    "cost_breakdown": {
+      "source": "cost_factors",
+      "assumptions": {
+        "monthly_hours": 730.0,
+        "gpu_count": 16.0,
+        "observed_gpu_count": 16.000000200000002,
+        "rack_count": 2.0,
+        "node_count": 2.0,
+        "gpus_per_rack": 8.0,
+        "rack_power_kw": 10.2
+      },
+      "factors": {
+        "dc_cost": {
+          "label": "DC Cost",
+          "monthly_cost_usd": {
+            "value": 4700.0,
+            "unit": "USD/month"
+          },
+          "cost_per_gpu_hour_usd": {
+            "value": 0.4024,
+            "unit": "USD / GPU-hour"
+          },
+          "run_allocated_cost_usd": {
+            "value": 1.0731,
+            "unit": "USD"
+          },
+          "pass_through_run_cost_usd": {
+            "value": 0,
+            "unit": "USD"
+          },
+          "included_in_service_cost": true,
+          "line_items_monthly_usd": {
+            "monthly_data_center_rent": {
+              "value": 3200.0,
+              "unit": "USD/month"
+            },
+            "service_fee": {
+              "value": 600.0,
+              "unit": "USD/month"
+            },
+            "rack_level_overhead": {
+              "value": 300.0,
+              "unit": "USD/month"
+            },
+            "other_dc_rack_overhead": {
+              "value": 200.0,
+              "unit": "USD/month"
+            },
+            "additional.liquid_cooling_overhead": {
+              "value": 400.0,
+              "unit": "USD/month"
+            }
+          },
+          "component_groups_monthly_usd": {},
+          "notes": {}
+        },
+        "power_cost": {
+          "label": "Power Cost",
+          "monthly_cost_usd": {
+            "value": 893.52,
+            "unit": "USD/month"
+          },
+          "cost_per_gpu_hour_usd": {
+            "value": 0.0765,
+            "unit": "USD / GPU-hour"
+          },
+          "run_allocated_cost_usd": {
+            "value": 0.204,
+            "unit": "USD"
+          },
+          "pass_through_run_cost_usd": {
+            "value": 0,
+            "unit": "USD"
+          },
+          "included_in_service_cost": true,
+          "line_items_monthly_usd": {
+            "estimated_power": {
+              "value": 893.52,
+              "unit": "USD/month"
+            }
+          },
+          "component_groups_monthly_usd": {},
+          "notes": {
+            "mode": "power_included",
+            "pue": 1.2,
+            "price_per_kwh": 0.1,
+            "power_utilization": 0.5,
+            "estimated_monthly_kwh": 8935.199999999999
+          }
+        },
+        "operation_cost": {
+          "label": "Operation Cost",
+          "monthly_cost_usd": {
+            "value": 1550.0,
+            "unit": "USD/month"
+          },
+          "cost_per_gpu_hour_usd": {
+            "value": 0.1327,
+            "unit": "USD / GPU-hour"
+          },
+          "run_allocated_cost_usd": {
+            "value": 0.3539,
+            "unit": "USD"
+          },
+          "pass_through_run_cost_usd": {
+            "value": 0,
+            "unit": "USD"
+          },
+          "included_in_service_cost": true,
+          "line_items_monthly_usd": {
+            "recurring.people_salaries": {
+              "value": 1100.0,
+              "unit": "USD/month"
+            },
+            "recurring.spares": {
+              "value": 120.0,
+              "unit": "USD/month"
+            },
+            "recurring.support_sla": {
+              "value": 160.0,
+              "unit": "USD/month"
+            },
+            "recurring.consultants": {
+              "value": 0.0,
+              "unit": "USD/month"
+            },
+            "recurring.advisory_support": {
+              "value": 100.0,
+              "unit": "USD/month"
+            },
+            "recurring.operational_tooling": {
+              "value": 70.0,
+              "unit": "USD/month"
+            },
+            "recurring.other_operational_cost": {
+              "value": 0.0,
+              "unit": "USD/month"
+            },
+            "one_time.site_landing": {
+              "value": 0,
+              "unit": "USD/month"
+            }
+          },
+          "component_groups_monthly_usd": {},
+          "notes": {
+            "amortization_months": 72.0
+          }
+        },
+        "cost_of_infrastructure": {
+          "label": "Cost Of Infrastructure",
+          "monthly_cost_usd": {
+            "value": 2944.4444,
+            "unit": "USD/month"
+          },
+          "cost_per_gpu_hour_usd": {
+            "value": 0.2521,
+            "unit": "USD / GPU-hour"
+          },
+          "run_allocated_cost_usd": {
+            "value": 0.6722,
+            "unit": "USD"
+          },
+          "pass_through_run_cost_usd": {
+            "value": 0,
+            "unit": "USD"
+          },
+          "included_in_service_cost": true,
+          "line_items_monthly_usd": {
+            "gpu_compute.gpu_accelerators": {
+              "value": 1888.8889,
+              "unit": "USD/month"
+            },
+            "gpu_compute.server_non_gpu": {
+              "value": 333.3333,
+              "unit": "USD/month"
+            },
+            "gpu_compute.chassis_and_rack_integration": {
+              "value": 138.8889,
+              "unit": "USD/month"
+            },
+            "network_interconnect.switching": {
+              "value": 277.7778,
+              "unit": "USD/month"
+            },
+            "network_interconnect.hca_or_nic": {
+              "value": 69.4444,
+              "unit": "USD/month"
+            },
+            "network_interconnect.cabling_and_fabric": {
+              "value": 27.7778,
+              "unit": "USD/month"
+            },
+            "storage.local_nvme": {
+              "value": 33.3333,
+              "unit": "USD/month"
+            },
+            "owned_rack_facility_hardware.pdu": {
+              "value": 33.3333,
+              "unit": "USD/month"
+            },
+            "owned_rack_facility_hardware.owned_rack_hardware": {
+              "value": 27.7778,
+              "unit": "USD/month"
+            },
+            "other_infrastructure.integration_buffer": {
+              "value": 113.8889,
+              "unit": "USD/month"
+            }
+          },
+          "component_groups_monthly_usd": {
+            "gpu_compute": {
+              "value": 2361.1111,
+              "unit": "USD/month"
+            },
+            "network_interconnect": {
+              "value": 375.0,
+              "unit": "USD/month"
+            },
+            "storage": {
+              "value": 33.3333,
+              "unit": "USD/month"
+            },
+            "owned_rack_facility_hardware": {
+              "value": 61.1111,
+              "unit": "USD/month"
+            },
+            "other_infrastructure": {
+              "value": 113.8889,
+              "unit": "USD/month"
+            }
+          },
+          "notes": {
+            "depreciation_months": 72.0,
+            "capital_total_usd": 212000.00000000003
+          }
+        },
+        "cost_of_financing": {
+          "label": "Cost Of Financing",
+          "monthly_cost_usd": {
+            "value": 1590.0,
+            "unit": "USD/month"
+          },
+          "cost_per_gpu_hour_usd": {
+            "value": 0.1361,
+            "unit": "USD / GPU-hour"
+          },
+          "run_allocated_cost_usd": {
+            "value": 0.363,
+            "unit": "USD"
+          },
+          "pass_through_run_cost_usd": {
+            "value": 0,
+            "unit": "USD"
+          },
+          "included_in_service_cost": true,
+          "line_items_monthly_usd": {
+            "capital_cost_interest": {
+              "value": 1590.0,
+              "unit": "USD/month"
+            }
+          },
+          "component_groups_monthly_usd": {},
+          "notes": {
+            "annual_rate": 0.09,
+            "financed_amount_usd": 212000.00000000003,
+            "repayment_style": "interest_only"
+          }
+        }
+      },
+      "total_monthly_cost_usd": {
+        "value": 11677.9644,
+        "unit": "USD/month"
+      },
+      "total_cost_per_gpu_hour_usd": {
+        "value": 0.9998,
+        "unit": "USD / GPU-hour"
+      },
+      "total_run_allocated_cost_usd": {
+        "value": 2.6662,
+        "unit": "USD"
+      },
+      "pass_through_monthly_cost_usd": {
+        "value": 0,
+        "unit": "USD/month"
+      },
+      "pass_through_run_cost_usd": {
+        "value": 0,
+        "unit": "USD"
+      }
+    }
+  },
+  "pricing": {
+    "formula_inputs": {
+      "hourly_cost_per_gpu_usd": {
+        "value": 0.9998,
+        "unit": "USD / GPU-hour"
+      },
+      "hourly_cost_source": "cost_factors_allocated_average",
+      "sla_input_tokens_per_second_per_gpu": {
+        "value": 6000.0,
+        "unit": "input tokens/sec/GPU"
+      },
+      "sla_output_tokens_per_second_per_gpu": {
+        "value": 760.0,
+        "unit": "output tokens/sec/GPU"
+      },
+      "target_utilization": {
+        "value": 0.65,
+        "unit": "ratio"
+      },
+      "high_availability_factor": {
+        "value": 1.15,
+        "unit": "multiplier"
+      },
+      "other_business_factor": {
+        "value": 1.3,
+        "unit": "multiplier"
+      },
+      "target_gross_margin": {
+        "value": 0.7,
+        "unit": "ratio"
+      },
+      "gross_margin_multiplier": {
+        "value": 3.3333,
+        "unit": "multiplier"
+      }
+    },
+    "request_mix": {
+      "average_sla_input_tokens_per_request": {
+        "value": 2048.0,
+        "unit": "input tokens/request"
+      },
+      "average_sla_output_tokens_per_request": {
+        "value": 256.0,
+        "unit": "output tokens/request"
+      },
+      "input_token_share": {
+        "value": 0.8889,
+        "unit": "ratio"
+      },
+      "output_token_share": {
+        "value": 0.1111,
+        "unit": "ratio"
+      },
+      "observed_sla_requests_per_second": {
+        "value": 28.2,
+        "unit": "requests/sec"
+      }
+    },
+    "effective_capacity": {
+      "input_tokens_per_second_per_gpu": {
+        "value": 3900.0,
+        "unit": "input tokens/sec/GPU"
+      },
+      "output_tokens_per_second_per_gpu": {
+        "value": 494.0,
+        "unit": "output tokens/sec/GPU"
+      },
+      "observed_sla_input_tokens_per_second": {
+        "value": 57753.6,
+        "unit": "input tokens/sec"
+      },
+      "observed_sla_output_tokens_per_second": {
+        "value": 7219.2,
+        "unit": "output tokens/sec"
+      },
+      "sellable_input_1m_tokens_per_gpu_hour": {
+        "value": 12.2087,
+        "unit": "1M input tokens/GPU-hour"
+      },
+      "sellable_output_1m_tokens_per_gpu_hour": {
+        "value": 1.5464,
+        "unit": "1M output tokens/GPU-hour"
+      },
+      "observed_average_gpu_count": {
+        "value": 16.0,
+        "unit": "GPUs"
+      },
+      "required_gpus_for_input_load": {
+        "value": 15,
+        "unit": "GPUs"
+      },
+      "required_gpus_for_output_load": {
+        "value": 15,
+        "unit": "GPUs"
+      },
+      "required_gpus_bottleneck": {
+        "value": 15,
+        "unit": "GPUs"
+      },
+      "required_gpus_with_ha": {
+        "value": 18,
+        "unit": "GPUs"
+      },
+      "capacity_surplus_gpus": {
+        "value": -2.0,
+        "unit": "GPUs"
+      }
+    },
+    "unit_service_cost": {
+      "input_per_1m_tokens_usd": {
+        "value": 0.0819,
+        "unit": "USD / 1M input tokens"
+      },
+      "output_per_1m_tokens_usd": {
+        "value": 0.6465,
+        "unit": "USD / 1M output tokens"
+      },
+      "mixed_per_1m_tokens_usd": {
+        "value": 0.1446,
+        "unit": "USD / 1M blended tokens"
+      },
+      "average_request_usd": {
+        "value": 0.000333,
+        "unit": "USD / request"
+      }
+    },
+    "commercial_cost": {
+      "input_per_1m_tokens_usd": {
+        "value": 0.1065,
+        "unit": "USD / 1M input tokens"
+      },
+      "output_per_1m_tokens_usd": {
+        "value": 0.8405,
+        "unit": "USD / 1M output tokens"
+      },
+      "mixed_per_1m_tokens_usd": {
+        "value": 0.188,
+        "unit": "USD / 1M blended tokens"
+      },
+      "average_request_usd": {
+        "value": 0.000433,
+        "unit": "USD / request"
+      }
+    },
+    "suggested_price": {
+      "input_per_1m_tokens_usd": {
+        "value": 0.3549,
+        "unit": "USD / 1M input tokens"
+      },
+      "output_per_1m_tokens_usd": {
+        "value": 2.8017,
+        "unit": "USD / 1M output tokens"
+      },
+      "mixed_per_1m_tokens_usd": {
+        "value": 0.6267,
+        "unit": "USD / 1M blended tokens"
+      },
+      "average_request_usd": {
+        "value": 0.001444,
+        "unit": "USD / request"
+      }
+    },
+    "gross_margin": {
+      "input_per_1m_tokens_usd": {
+        "value": 0.2484,
+        "unit": "USD / 1M input tokens"
+      },
+      "output_per_1m_tokens_usd": {
+        "value": 1.9612,
+        "unit": "USD / 1M output tokens"
+      },
+      "mixed_per_1m_tokens_usd": {
+        "value": 0.4387,
+        "unit": "USD / 1M blended tokens"
+      },
+      "average_request_usd": {
+        "value": 0.001011,
+        "unit": "USD / request"
+      }
+    }
+  },
+  "resources": {
+    "gpu_hours_by_sku": {
+      "L20": 2.6666667
+    },
+    "gpu_hours_total": {
+      "value": 2.6667,
+      "unit": "GPU-hours"
+    },
+    "avg_power_watts": {
+      "value": 5200.0,
+      "unit": "watts"
+    },
+    "energy_kwh": {
+      "value": 0.8667,
+      "unit": "kWh"
+    },
+    "avg_gpu_utilization": {
+      "value": 0.74,
+      "unit": "ratio"
+    },
+    "avg_memory_utilization": {
+      "value": 0.69,
+      "unit": "ratio"
+    }
+  },
+  "cache": {
+    "kv_cache_hit_rate": {
+      "value": 0.38,
+      "unit": "ratio"
+    },
+    "cache_hit_tokens": {
+      "value": 13200000,
+      "unit": "tokens"
+    },
+    "cache_miss_tokens": {
+      "value": 21452160,
+      "unit": "tokens"
+    }
+  },
+  "baseline": {
+    "run_id": "baseline-static-vllm-001",
+    "name": "Synthetic Customer Baseline Static vLLM",
+    "system": {
+      "platform": "Customer baseline",
+      "backend": "vLLM",
+      "model_name": "Qwen3-30B-FP8",
+      "deployment_shape": "static 16x L20"
+    },
+    "metrics": {
+      "sla_goodput_output_tokens_per_second": 6124,
+      "sla_qualified_tpm": 3630000,
+      "total_cost_usd": 3.96,
+      "gpu_hours": 4.0,
+      "cost_per_1m_total_tokens_usd": 0.1091,
+      "cost_per_1m_output_tokens_usd": 1.078,
+      "perf_per_dollar": 9166666.67,
+      "perf_per_watt": 610.08
+    },
+    "deltas": {
+      "sla_goodput_output_tokens_per_second_pct": 17.88,
+      "sla_qualified_tpm_pct": 7.39,
+      "cost_per_1m_total_tokens_reduction_pct": 37.31,
+      "cost_per_1m_output_tokens_reduction_pct": 42.9,
+      "perf_per_dollar_pct": 59.51,
+      "gpu_hours_saved": 1.3333,
+      "cost_saved_usd": 1.2938
+    }
+  },
+  "data_contract": {
+    "offline_entrypoint": "reports/token-economics/token_economics/compute.py",
+    "summary_artifact": "economics-summary.json",
+    "canonical_inputs": [
+      {
+        "name": "evaluation_run",
+        "schema": "reports/token-economics/schemas/evaluation-run.schema.json",
+        "example": "reports/token-economics/examples/sample-run.json",
+        "user_fill": {
+          "current_mode": "edit_json_file",
+          "current_location": "reports/token-economics/examples/sample-run.json",
+          "future_ui_mode": "upload_result_file_or_edit_form",
+          "future_ui_location": "TaaS Reports > New Report > Evaluation Run",
+          "fields": [
+            "workload",
+            "traffic",
+            "latency",
+            "resources",
+            "cache",
+            "provenance"
+          ]
+        },
+        "feeds": [
+          "workload",
+          "traffic",
+          "latency",
+          "resources",
+          "cache",
+          "provenance"
+        ],
+        "current_source": "synthetic",
+        "adapter_target": "AIPerf job output, trace replay result, Prometheus query, Dynamo metrics, or imported benchmark run"
+      },
+      {
+        "name": "cost_model",
+        "schema": "reports/token-economics/schemas/cost-model.schema.json",
+        "example": "reports/token-economics/examples/sample-cost-model.yaml",
+        "user_fill": {
+          "current_mode": "edit_yaml_file",
+          "current_location": "reports/token-economics/examples/sample-cost-model.yaml",
+          "future_ui_mode": "edit_form_or_upload_yaml",
+          "future_ui_location": "TaaS Reports > New Report > Cost Model",
+          "fields": [
+            "DC cost",
+            "power cost",
+            "operation cost",
+            "cost of infrastructure: GPU, network, storage, owned facility hardware",
+            "cost of financing",
+            "SLA throughput",
+            "target utilization",
+            "HA factor",
+            "gross margin"
+          ]
+        },
+        "feeds": [
+          "5-factor cost model",
+          "monthly-to-GPU-hour allocation",
+          "SLA input/output throughput per GPU",
+          "target utilization",
+          "HA factor",
+          "gross margin"
+        ],
+        "current_source": "Synthetic L20 5-factor cost model. Replace all factors with customer-approved values before sharing externally.",
+        "adapter_target": "Customer-approved DC, power, operation, infrastructure, financing, and SLA benchmark profile"
+      },
+      {
+        "name": "baseline_run",
+        "schema": "reports/token-economics/schemas/baseline-run.schema.json",
+        "example": "reports/token-economics/examples/sample-baseline.json",
+        "user_fill": {
+          "current_mode": "edit_json_file_or_omit",
+          "current_location": "reports/token-economics/examples/sample-baseline.json",
+          "future_ui_mode": "upload_baseline_summary_or_select_prior_report",
+          "future_ui_location": "TaaS Reports > New Report > Baseline",
+          "fields": [
+            "baseline goodput",
+            "baseline cost",
+            "baseline perf per dollar",
+            "baseline GPU-hours",
+            "baseline total cost"
+          ]
+        },
+        "feeds": [
+          "baseline metrics",
+          "Dynamo vs baseline deltas"
+        ],
+        "current_source": "Synthetic Customer Baseline Static vLLM",
+        "adapter_target": "Imported baseline report, prior static deployment run, or online baseline source"
+      }
+    ],
+    "future_online_adapters": [
+      "AIPerf job output / trace replay result",
+      "Prometheus range query",
+      "DCGM power/util/memory",
+      "Dynamo Frontend/Router/Planner metrics",
+      "Kubernetes replica / placement / GPU SKU",
+      "Baseline run import or online baseline source"
+    ]
+  },
+  "input_snapshots": {
+    "evaluation_run": {
+      "source_location": "reports/token-economics/examples/sample-run.json",
+      "sections": [
+        {
+          "name": "System",
+          "fields": {
+            "platform": "Dynamo",
+            "backend": "vLLM",
+            "model_name": "Qwen3-30B-FP8",
+            "deployment_shape": "single-pool autoscaling, 16x L20",
+            "gpu_skus": [
+              "L20"
+            ]
+          }
+        },
+        {
+          "name": "Workload",
+          "fields": {
+            "duration_seconds": 600,
+            "request_shape": "ISL 2048 / OSL 256 synthetic chat sweep",
+            "concurrency": 32,
+            "notes": "Synthetic data for report UI and formula validation."
+          }
+        },
+        {
+          "name": "SLA Targets",
+          "fields": {
+            "ttft_ms": 2000,
+            "itl_ms": 200,
+            "e2e_latency_ms": 15000
+          }
+        },
+        {
+          "name": "Traffic",
+          "fields": {
+            "successful_requests": 18000,
+            "failed_requests": 48,
+            "input_tokens": 36864000,
+            "output_tokens": 4608000,
+            "sla_qualified_requests": 16920,
+            "sla_qualified_input_tokens": 34652160,
+            "sla_qualified_output_tokens": 4331520
+          }
+        },
+        {
+          "name": "Latency",
+          "fields": {
+            "ttft_ms": {
+              "p50": 640,
+              "p95": 1410,
+              "p99": 1880
+            },
+            "itl_ms": {
+              "p50": 44,
+              "p95": 92,
+              "p99": 138
+            },
+            "e2e_latency_ms": {
+              "p50": 3680,
+              "p95": 7820,
+              "p99": 11350
+            }
+          }
+        },
+        {
+          "name": "Resources",
+          "fields": {
+            "gpu_hours_by_sku": {
+              "L20": 2.6666667
+            },
+            "avg_power_watts": 5200,
+            "energy_kwh": 0.8667,
+            "avg_gpu_utilization": 0.74,
+            "avg_memory_utilization": 0.69
+          }
+        },
+        {
+          "name": "Cache",
+          "fields": {
+            "kv_cache_hit_rate": 0.38,
+            "cache_hit_tokens": 13200000,
+            "cache_miss_tokens": 21452160
+          }
+        },
+        {
+          "name": "Provenance",
+          "fields": {
+            "source": "synthetic",
+            "intended_use": "demo only",
+            "aiperf_job": "synthetic-aiperf-demo",
+            "prometheus_window": "2026-05-22T08:00:00Z/2026-05-22T08:10:00Z"
+          }
+        }
+      ]
+    },
+    "cost_model": {
+      "source_location": "reports/token-economics/examples/sample-cost-model.yaml",
+      "sections": [
+        {
+          "name": "Legacy GPU And Power Cost",
+          "fields": {
+            "currency": "USD",
+            "gpu_hour_cost_by_sku": {
+              "L20": 0.95
+            },
+            "power_cost_per_kwh": 0.1,
+            "include_measured_power_cost": true,
+            "fixed_run_cost_usd": 0
+          }
+        },
+        {
+          "name": "5-Factor Cost Model",
+          "fields": {
+            "dc_cost": {
+              "monthly_data_center_rent": {
+                "amount": 1600,
+                "basis": "per_rack_per_month"
+              },
+              "service_fee": 600,
+              "rack_level_overhead": {
+                "amount": 150,
+                "basis": "per_rack_per_month"
+              },
+              "other_dc_rack_overhead": 200,
+              "additional_items": {
+                "liquid_cooling_overhead": {
+                  "type": "recurring_monthly",
+                  "amount": 200,
+                  "basis": "per_rack"
+                }
+              }
+            },
+            "power_cost": {
+              "pue": 1.2,
+              "price_per_kwh": 0.1,
+              "mode": "power_included",
+              "power_utilization": 0.5,
+              "rack_power_kw": 10.2
+            },
+            "operation_cost": {
+              "amortization_months": 72,
+              "recurring_monthly": {
+                "people_salaries": 1100,
+                "spares": 120,
+                "support_sla": 160,
+                "consultants": 0,
+                "advisory_support": 100,
+                "operational_tooling": 70,
+                "other_operational_cost": 0
+              },
+              "one_time": {
+                "site_landing": 0
+              }
+            },
+            "cost_of_infrastructure": {
+              "rack_type": "L20-demo-rack",
+              "depreciation_months": 72,
+              "gpu_compute": {
+                "gpu_cost_per_unit": 8500,
+                "gpu_count": 16,
+                "server_non_gpu_cost_per_node": 12000,
+                "node_count": 2,
+                "chassis_rack_integration_cost_per_rack": 5000
+              },
+              "network_interconnect": {
+                "switch_cost_per_rack": 10000,
+                "hca_cost_per_node": 2500,
+                "cabling_cost_per_rack": 1000
+              },
+              "storage": {
+                "local_nvme_cost_per_node": 1200,
+                "shared_storage_cost_total": 0,
+                "object_checkpoint_storage_cost_total": 0
+              },
+              "owned_rack_facility_hardware": {
+                "pdu_cost_per_rack": 1200,
+                "cdu_cost_per_rack": 0,
+                "rack_hardware_cost_per_rack": 1000
+              },
+              "other_infrastructure": {
+                "integration_buffer": 8200
+              }
+            },
+            "cost_of_financing": {
+              "annual_rate": 0.09,
+              "financing_term_months": 72,
+              "debt_share": 1.0,
+              "repayment_style": "interest_only"
+            }
+          }
+        },
+        {
+          "name": "Pricing Assumptions",
+          "fields": {
+            "hourly_cost_per_gpu_usd": null,
+            "sla_input_tokens_per_second_per_gpu": 6000,
+            "sla_output_tokens_per_second_per_gpu": 760,
+            "target_utilization": 0.65,
+            "high_availability_factor": 1.15,
+            "other_business_factor": 1.3,
+            "target_gross_margin": 0.7
+          }
+        },
+        {
+          "name": "Notes",
+          "fields": {
+            "notes": "Synthetic L20 5-factor cost model. Replace all factors with customer-approved values before sharing externally."
+          }
+        }
+      ]
+    },
+    "baseline_run": {
+      "source_location": "reports/token-economics/examples/sample-baseline.json",
+      "sections": [
+        {
+          "name": "Baseline Identity",
+          "fields": {
+            "run_id": "baseline-static-vllm-001",
+            "name": "Synthetic Customer Baseline Static vLLM",
+            "system": {
+              "platform": "Customer baseline",
+              "backend": "vLLM",
+              "model_name": "Qwen3-30B-FP8",
+              "deployment_shape": "static 16x L20"
+            }
+          }
+        },
+        {
+          "name": "Baseline Metrics",
+          "fields": {
+            "sla_goodput_output_tokens_per_second": 6124,
+            "sla_qualified_tpm": 3630000,
+            "total_cost_usd": 3.96,
+            "gpu_hours": 4.0,
+            "cost_per_1m_total_tokens_usd": 0.1091,
+            "cost_per_1m_output_tokens_usd": 1.078,
+            "perf_per_dollar": 9166666.67,
+            "perf_per_watt": 610.08
+          }
+        }
+      ]
+    }
+  },
+  "warnings": [
+    "Sample data is synthetic and must not be used as customer evidence."
+  ],
+  "formulas": [
+    "Raw TPM = successful input+output tokens / duration minutes",
+    "Raw RPM = successful requests / duration minutes",
+    "SLA-qualified TPM = SLA-qualified input+output tokens / duration minutes",
+    "SLA-goodput = SLA-qualified output tokens / duration seconds",
+    "GPU cost = sum(gpu_hours_by_sku * gpu_hour_cost_by_sku)",
+    "Cost per 1M total SLA tokens = total cost / SLA input+output tokens * 1,000,000",
+    "Cost per 1M input SLA tokens = total cost / SLA input tokens * 1,000,000",
+    "Cost per 1M output SLA tokens = total cost / SLA output tokens * 1,000,000",
+    "SLA input service cost = H * 1,000,000 * HA factor / (SLA input tokens/sec/GPU * target utilization * 3600)",
+    "SLA output service cost = H * 1,000,000 * HA factor / (SLA output tokens/sec/GPU * target utilization * 3600)",
+    "Commercial token cost = SLA service cost * other business factor",
+    "Suggested token price = commercial token cost / (1 - target gross margin)",
+    "Mixed 1M token price = input share * suggested input price + output share * suggested output price",
+    "Average request price = avg input tokens / 1M * input price + avg output tokens / 1M * output price",
+    "Perf/$ = SLA-qualified TPM / cost per minute",
+    "Perf/watt = SLA-qualified TPM / average measured watts",
+    "5-factor GPU-hour cost = DC + power + operation + infrastructure + financing, each normalized to monthly cost / GPU count / monthly hours",
+    "Power pass-through is reported separately and excluded from service cost; power-included is allocated into service cost"
+  ]
+}

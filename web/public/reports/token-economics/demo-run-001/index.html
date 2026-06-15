@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Token Economics Report</title>
+    <style>
+      :root {
+        --bg: #f5f7f9;
+        --surface: #ffffff;
+        --surface-soft: #f9fbfc;
+        --text: #151a1f;
+        --muted: #657084;
+        --border: #d7dde5;
+        --border-strong: #b8c2cf;
+        --accent: #76b900;
+        --accent-dark: #467800;
+        --blue: #2563eb;
+        --danger: #c2410c;
+        --warning-bg: #fff7ed;
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .shell {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .report-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: start;
+        margin-bottom: 18px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: 27px;
+        line-height: 1.15;
+      }
+
+      h2 {
+        font-size: 16px;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-top: 7px;
+        max-width: 850px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 5px 10px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .focus {
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+        gap: 18px;
+        align-items: stretch;
+        padding: 20px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-left: 5px solid var(--accent);
+        border-radius: var(--radius);
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+      }
+
+      .focus-title {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .read-first {
+        margin-top: 10px;
+        padding: 11px 12px;
+        background: var(--surface-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--muted);
+      }
+
+      .read-first strong {
+        color: var(--text);
+      }
+
+      .price-pair {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 12px;
+      }
+
+      .price-tile {
+        min-width: 0;
+        padding: 14px 0 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .price-label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .price-value {
+        margin-top: 5px;
+        font-size: 34px;
+        line-height: 1;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+      }
+
+      .price-unit {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .summary-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .summary-item {
+        min-width: 0;
+        padding: 10px 12px;
+        background: var(--surface-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+      }
+
+      .summary-label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .summary-value {
+        margin-top: 3px;
+        font-size: 18px;
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+      }
+
+      .signal-panel {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        min-width: 0;
+        padding-left: 18px;
+        border-left: 1px solid var(--border);
+      }
+
+      .signal-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .signal-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .signal-label {
+        color: var(--muted);
+      }
+
+      .signal-value {
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+
+      .signal-value.negative {
+        color: var(--danger);
+      }
+
+      .signal-value.positive {
+        color: var(--accent-dark);
+      }
+
+      .section {
+        margin-top: 18px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        padding: 15px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .section-subtitle {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .section-body {
+        padding: 16px 18px 18px;
+      }
+
+      .cost-overview {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+        gap: 18px;
+      }
+
+      .cost-block {
+        min-width: 0;
+      }
+
+      .cost-block h3 {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .compact-matrix {
+        margin-top: 12px;
+      }
+
+      .stack-gap {
+        margin-top: 18px;
+      }
+
+      .details-section {
+        margin-top: 18px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+      }
+
+      .details-section summary {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        padding: 15px 18px;
+        cursor: pointer;
+        font-weight: 750;
+      }
+
+      .details-section summary::marker {
+        color: var(--muted);
+      }
+
+      .details-section summary span:last-child {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .details-section[open] summary {
+        border-bottom: 1px solid var(--border);
+      }
+
+      .matrix-wrap {
+        overflow-x: auto;
+      }
+
+      .matrix {
+        width: 100%;
+        min-width: 760px;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .matrix th,
+      .matrix td {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--border);
+        text-align: right;
+        overflow-wrap: anywhere;
+        vertical-align: top;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .matrix th:first-child,
+      .matrix td:first-child {
+        text-align: left;
+        width: 18%;
+      }
+
+      .matrix th {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .matrix td:first-child {
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .matrix tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .source-cell {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .source-path {
+        display: block;
+        margin-top: 4px;
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 11px;
+      }
+
+      .snapshot-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .snapshot-card {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface-soft);
+      }
+
+      .snapshot-card h3 {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 14px;
+      }
+
+      .snapshot-source {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 500;
+      }
+
+      .snapshot-section {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .snapshot-section:last-child {
+        border-bottom: 0;
+      }
+
+      .snapshot-title {
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .snapshot-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .snapshot-table td {
+        padding: 4px 0;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+        font-size: 12px;
+      }
+
+      .snapshot-table td:first-child {
+        width: 46%;
+        color: var(--muted);
+      }
+
+      .snapshot-table td:last-child {
+        text-align: right;
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .detail-grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .panel {
+        min-width: 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+      }
+
+      .panel-header {
+        padding: 14px 16px 0;
+      }
+
+      .panel-body {
+        padding: 10px 16px 16px;
+      }
+
+      .table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+      }
+
+      .table td {
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+        overflow-wrap: anywhere;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .table tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .table td:first-child {
+        width: 58%;
+        color: var(--muted);
+      }
+
+      .table td:last-child {
+        text-align: right;
+        color: var(--text);
+        font-weight: 650;
+      }
+
+      .bars {
+        display: grid;
+        gap: 12px;
+      }
+
+      .bar-row {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr) 88px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .bar-row span {
+        color: var(--muted);
+      }
+
+      .bar-track {
+        height: 9px;
+        background: #e7edf3;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .bar-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: inherit;
+      }
+
+      .delta-list {
+        display: grid;
+        gap: 9px;
+      }
+
+      .delta-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        padding-bottom: 9px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .delta-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .delta-row span:first-child {
+        color: var(--muted);
+      }
+
+      .delta-value {
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .positive {
+        color: var(--accent-dark);
+      }
+
+      .negative {
+        color: var(--danger);
+      }
+
+      .warning {
+        background: var(--warning-bg);
+        border-color: #fed7aa;
+        color: #9a3412;
+      }
+
+      .formula-list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 1080px) {
+        .focus,
+        .cost-overview,
+        .snapshot-grid,
+        .detail-grid,
+        .detail-grid.two {
+          grid-template-columns: 1fr;
+        }
+
+        .signal-panel {
+          padding-left: 0;
+          border-left: 0;
+          border-top: 1px solid var(--border);
+          padding-top: 14px;
+        }
+      }
+
+      @media (max-width: 680px) {
+        .shell {
+          padding: 18px;
+        }
+
+        .report-header,
+        .price-pair,
+        .summary-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .price-value {
+          font-size: 29px;
+        }
+
+        .bar-row {
+          grid-template-columns: 92px minmax(0, 1fr) 72px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div id="app">Loading report...</div>
+    </main>
+
+    <script>
+      const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+      const compactFmt = new Intl.NumberFormat("en-US", {
+        notation: "compact",
+        maximumFractionDigits: 2,
+      });
+      const money = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 4,
+      });
+
+      const asValue = (metric) => metric && typeof metric.value === "number" ? metric.value : null;
+      const formatMetric = (metric, compact = false) => {
+        const value = asValue(metric);
+        if (value === null) return "n/a";
+        if ((metric.unit || "").startsWith("USD")) return money.format(value);
+        if (compact && Math.abs(value) >= 1_000_000) return compactFmt.format(value);
+        return fmt.format(value);
+      };
+      const pct = (value) => typeof value === "number" ? `${value > 0 ? "+" : ""}${fmt.format(value)}%` : "n/a";
+      const signed = (value, suffix = "") => typeof value === "number" ? `${value > 0 ? "+" : ""}${fmt.format(value)}${suffix}` : "n/a";
+      const cls = (value, positiveIsGood = true) => {
+        if (typeof value !== "number" || value === 0) return "";
+        return (value > 0) === positiveIsGood ? "positive" : "negative";
+      };
+      const escapeHtml = (value) => String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+      const text = (value) => value === undefined || value === null || value === "" ? "n/a" : escapeHtml(value);
+
+      function row(label, metric) {
+        return `<tr><td>${label}</td><td>${formatMetric(metric)}</td></tr>`;
+      }
+
+      function textRow(label, value) {
+        return `<tr><td>${text(label)}</td><td>${text(value)}</td></tr>`;
+      }
+
+      function signal(label, metric, toneValue, positiveIsGood = true) {
+        return `
+          <div class="signal-row">
+            <span class="signal-label">${label}</span>
+            <span class="signal-value ${cls(toneValue, positiveIsGood)}">${formatMetric(metric, true)}</span>
+          </div>
+        `;
+      }
+
+      function summaryItem(label, metric) {
+        return `
+          <div class="summary-item">
+            <div class="summary-label">${label}</div>
+            <div class="summary-value">${formatMetric(metric, true)}</div>
+          </div>
+        `;
+      }
+
+      function pricingMatrix(summary) {
+        const p = summary.pricing;
+        if (!p) return "";
+        const cells = (observed, service, commercial, suggested, margin) => `
+          <td>${formatMetric(observed)}</td>
+          <td>${formatMetric(service)}</td>
+          <td>${formatMetric(commercial)}</td>
+          <td>${formatMetric(suggested)}</td>
+          <td>${formatMetric(margin)}</td>
+        `;
+        return `
+          <details class="details-section">
+            <summary><span>Token Price Build</span><span>Observed cost, SLA service cost, commercial cost, and margin</span></summary>
+            <div class="section-body matrix-wrap">
+              <table class="matrix">
+                <thead>
+                  <tr>
+                    <th>Token Type</th>
+                    <th>Observed Cost</th>
+                    <th>SLA Service Cost</th>
+                    <th>Commercial Cost</th>
+                    <th>Suggested Price</th>
+                    <th>Gross Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Input / 1M</td>
+                    ${cells(
+                      summary.cost.cost_per_1m_input_tokens_usd,
+                      p.unit_service_cost.input_per_1m_tokens_usd,
+                      p.commercial_cost.input_per_1m_tokens_usd,
+                      p.suggested_price.input_per_1m_tokens_usd,
+                      p.gross_margin.input_per_1m_tokens_usd
+                    )}
+                  </tr>
+                  <tr>
+                    <td>Output / 1M</td>
+                    ${cells(
+                      summary.cost.cost_per_1m_output_tokens_usd,
+                      p.unit_service_cost.output_per_1m_tokens_usd,
+                      p.commercial_cost.output_per_1m_tokens_usd,
+                      p.suggested_price.output_per_1m_tokens_usd,
+                      p.gross_margin.output_per_1m_tokens_usd
+                    )}
+                  </tr>
+                  <tr>
+                    <td>Blended / 1M</td>
+                    ${cells(
+                      summary.cost.cost_per_1m_total_tokens_usd,
+                      p.unit_service_cost.mixed_per_1m_tokens_usd,
+                      p.commercial_cost.mixed_per_1m_tokens_usd,
+                      p.suggested_price.mixed_per_1m_tokens_usd,
+                      p.gross_margin.mixed_per_1m_tokens_usd
+                    )}
+                  </tr>
+                  <tr>
+                    <td>Average Request</td>
+                    ${cells(
+                      null,
+                      p.unit_service_cost.average_request_usd,
+                      p.commercial_cost.average_request_usd,
+                      p.suggested_price.average_request_usd,
+                      p.gross_margin.average_request_usd
+                    )}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        `;
+      }
+
+      function lineItems(items) {
+        const entries = Object.entries(items || {});
+        if (!entries.length) return "n/a";
+        return entries
+          .map(([name, metric]) => `${text(name)}: ${formatMetric(metric)}`)
+          .join("<br>");
+      }
+
+      function metricFromNumber(value, unit = "USD/month") {
+        return typeof value === "number" ? { value, unit } : value;
+      }
+
+      function costFactorBreakdown(summary) {
+        const breakdown = summary.cost.cost_breakdown;
+        if (!breakdown?.factors) return "";
+        const order = [
+          "dc_cost",
+          "power_cost",
+          "operation_cost",
+          "cost_of_infrastructure",
+          "cost_of_financing",
+        ];
+        const rows = order.map((key) => breakdown.factors[key]).filter(Boolean).map((factor) => {
+          const mode = factor.included_in_service_cost ? "Included" : "Pass-through";
+          const runCost = factor.included_in_service_cost
+            ? factor.run_allocated_cost_usd
+            : factor.pass_through_run_cost_usd;
+          return `
+            <tr>
+              <td>${text(factor.label)}</td>
+              <td>${text(mode)}</td>
+              <td>${formatMetric(factor.cost_per_gpu_hour_usd)}</td>
+              <td>${formatMetric(runCost)}</td>
+            </tr>
+          `;
+        }).join("");
+        const infrastructure = breakdown.factors.cost_of_infrastructure;
+        const componentLabels = {
+          gpu_compute: "GPU / compute",
+          network_interconnect: "Network / interconnect",
+          storage: "Storage",
+          owned_rack_facility_hardware: "Owned rack / facility HW",
+          other_infrastructure: "Other infrastructure",
+          additional_items: "Additional items",
+        };
+        const componentRows = Object.entries(infrastructure?.component_groups_monthly_usd || {})
+          .filter(([, metric]) => (asValue(metric) || 0) > 0)
+          .map(([key, metric]) => `
+            <tr>
+              <td>${text(componentLabels[key] || key)}</td>
+              <td>${formatMetric(metric)}</td>
+              <td>${formatMetric(metricFromNumber((asValue(metric) || 0) / ((breakdown.assumptions?.gpu_count || 1) * (breakdown.assumptions?.monthly_hours || 1)), "USD / GPU-hour"))}</td>
+            </tr>
+          `).join("");
+        const a = breakdown.assumptions || {};
+        return `
+          <section class="section">
+            <div class="section-header">
+              <h2>Cost Overview</h2>
+              <span class="section-subtitle">5 factors normalized into service cost</span>
+            </div>
+            <div class="section-body cost-overview">
+              <div class="cost-block">
+                <h3>Factor Contribution</h3>
+                <table class="table">
+                  <tbody>
+                    <tr><td>Total cost / GPU-hour</td><td>${formatMetric(breakdown.total_cost_per_gpu_hour_usd)}</td></tr>
+                    <tr><td>Total run allocation</td><td>${formatMetric(breakdown.total_run_allocated_cost_usd)}</td></tr>
+                    <tr><td>GPU / rack basis</td><td>${text(a.gpu_count)} GPUs / ${text(a.rack_count)} racks</td></tr>
+                  </tbody>
+                </table>
+                <div class="matrix-wrap compact-matrix">
+                  <table class="matrix">
+                    <thead>
+                      <tr>
+                        <th>Factor</th>
+                        <th>Treatment</th>
+                        <th>Cost / GPU-hour</th>
+                        <th>Run Allocation</th>
+                      </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="cost-block">
+                <h3>Infrastructure Split</h3>
+                <table class="table">
+                  <tbody>${componentRows || "<tr><td>Components</td><td>n/a</td></tr>"}</tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        `;
+      }
+
+      function costFactorAppendix(summary) {
+        const breakdown = summary.cost.cost_breakdown;
+        if (!breakdown?.factors) return "";
+        const rows = Object.values(breakdown.factors).map((factor) => `
+          <tr>
+            <td>${text(factor.label)}</td>
+            <td>${formatMetric(factor.monthly_cost_usd)}</td>
+            <td>${lineItems(factor.line_items_monthly_usd)}</td>
+          </tr>
+        `).join("");
+        return `
+          <details class="details-section">
+            <summary><span>Cost Line Items</span><span>Monthly line items behind the 5-factor model</span></summary>
+            <div class="section-body matrix-wrap">
+              <table class="matrix">
+                <thead><tr><th>Factor</th><th>Monthly Cost</th><th>Line Items</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </details>
+        `;
+      }
+
+      function dataInputs(summary) {
+        const contract = summary.data_contract;
+        if (!contract?.canonical_inputs?.length) return "";
+        const rows = contract.canonical_inputs.map((input) => `
+          <tr>
+            <td>${text(input.name)}</td>
+            <td class="source-cell">
+              Current: ${text(input.user_fill?.current_mode)}
+              <span class="source-path">${text(input.user_fill?.current_location)}</span>
+              Future UI: ${text(input.user_fill?.future_ui_mode)}
+              <span class="source-path">${text(input.user_fill?.future_ui_location)}</span>
+            </td>
+            <td class="source-cell">
+              ${text((input.feeds || []).join(", "))}
+              <span class="source-path">${text(input.example)}</span>
+            </td>
+            <td class="source-cell">${text(input.current_source)}</td>
+            <td class="source-cell">${text(input.adapter_target)}</td>
+          </tr>
+        `).join("");
+        return `
+          <details class="details-section">
+            <summary><span>Data Inputs And Connection Points</span><span>Canonical input locations and future adapter targets</span></summary>
+            <div class="section-body matrix-wrap">
+              <table class="matrix">
+                <thead>
+                  <tr>
+                    <th>Contract</th>
+                    <th>Where User Fills</th>
+                    <th>User Supplies</th>
+                    <th>Current Demo Source</th>
+                    <th>Future Adapter Target</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </details>
+        `;
+      }
+
+      function formatRawValue(value) {
+        if (value === undefined || value === null || value === "") return "n/a";
+        if (typeof value === "number") return fmt.format(value);
+        if (typeof value === "boolean") return value ? "true" : "false";
+        if (Array.isArray(value)) return value.map((item) => formatRawValue(item)).join(", ");
+        if (typeof value === "object") {
+          return Object.entries(value)
+            .map(([key, nested]) => `${text(key)}: ${formatRawValue(nested)}`)
+            .join("<br>");
+        }
+        return text(value);
+      }
+
+      function snapshotSection(section) {
+        const rows = Object.entries(section.fields || {}).map(([key, value]) => `
+          <tr>
+            <td>${text(key)}</td>
+            <td>${formatRawValue(value)}</td>
+          </tr>
+        `).join("");
+        return `
+          <div class="snapshot-section">
+            <div class="snapshot-title">${text(section.name)}</div>
+            <table class="snapshot-table"><tbody>${rows || "<tr><td>n/a</td><td>n/a</td></tr>"}</tbody></table>
+          </div>
+        `;
+      }
+
+      function snapshotCard(label, snapshot) {
+        if (!snapshot) {
+          return `
+            <div class="snapshot-card">
+              <h3>${text(label)}<span class="snapshot-source">not attached</span></h3>
+              <div class="snapshot-section"><div class="snapshot-title">Status</div><span class="section-subtitle">No data was supplied for this input.</span></div>
+            </div>
+          `;
+        }
+        return `
+          <div class="snapshot-card">
+            <h3>${text(label)}<span class="snapshot-source">${text(snapshot.source_location)}</span></h3>
+            ${(snapshot.sections || []).map(snapshotSection).join("")}
+          </div>
+        `;
+      }
+
+      function inputSnapshots(summary) {
+        const snapshots = summary.input_snapshots;
+        if (!snapshots) return "";
+        return `
+          <details class="details-section">
+            <summary><span>User-Filled Data Preview</span><span>Values loaded from uploaded or edited canonical inputs</span></summary>
+            <div class="section-body snapshot-grid">
+              ${snapshotCard("Evaluation Run", snapshots.evaluation_run)}
+              ${snapshotCard("Cost Model", snapshots.cost_model)}
+              ${snapshotCard("Baseline Run", snapshots.baseline_run)}
+            </div>
+          </details>
+        `;
+      }
+
+      function bars(summary) {
+        const raw = asValue(summary.throughput.raw_tpm) || 0;
+        const sla = asValue(summary.throughput.sla_qualified_tpm) || 0;
+        const pass = (asValue(summary.throughput.sla_pass_rate) || 0) * 100;
+        const cache = (asValue(summary.cache.kv_cache_hit_rate) || 0) * 100;
+        const max = Math.max(raw, sla, 1);
+        return `
+          <div class="bars">
+            <div class="bar-row"><span>Raw TPM</span><div class="bar-track"><div class="bar-fill" style="width: 100%"></div></div><strong>${compactFmt.format(raw)}</strong></div>
+            <div class="bar-row"><span>SLA TPM</span><div class="bar-track"><div class="bar-fill" style="width: ${(sla / max) * 100}%"></div></div><strong>${compactFmt.format(sla)}</strong></div>
+            <div class="bar-row"><span>SLA pass</span><div class="bar-track"><div class="bar-fill" style="width: ${pass}%"></div></div><strong>${fmt.format(pass)}%</strong></div>
+            <div class="bar-row"><span>KV hit</span><div class="bar-track"><div class="bar-fill" style="width: ${cache}%"></div></div><strong>${fmt.format(cache)}%</strong></div>
+          </div>
+        `;
+      }
+
+      function baselinePanel(summary) {
+        if (!summary.baseline) {
+          return `<div class="panel"><div class="panel-header"><h2>Baseline Delta</h2></div><div class="panel-body"><span class="section-subtitle">No baseline run was attached.</span></div></div>`;
+        }
+        const d = summary.baseline.deltas;
+        return `
+          <div class="panel">
+            <div class="panel-header"><h2>Dynamo vs Baseline</h2></div>
+            <div class="panel-body delta-list">
+              <div class="delta-row"><span>SLA-goodput</span><span class="delta-value ${cls(d.sla_goodput_output_tokens_per_second_pct)}">${pct(d.sla_goodput_output_tokens_per_second_pct)}</span></div>
+              <div class="delta-row"><span>SLA-qualified TPM</span><span class="delta-value ${cls(d.sla_qualified_tpm_pct)}">${pct(d.sla_qualified_tpm_pct)}</span></div>
+              <div class="delta-row"><span>Output cost reduction</span><span class="delta-value ${cls(d.cost_per_1m_output_tokens_reduction_pct)}">${pct(d.cost_per_1m_output_tokens_reduction_pct)}</span></div>
+              <div class="delta-row"><span>Perf/$</span><span class="delta-value ${cls(d.perf_per_dollar_pct)}">${pct(d.perf_per_dollar_pct)}</span></div>
+              <div class="delta-row"><span>GPU-hours saved</span><span class="delta-value ${cls(d.gpu_hours_saved)}">${signed(d.gpu_hours_saved, " GPUh")}</span></div>
+              <div class="delta-row"><span>Cost saved</span><span class="delta-value ${cls(d.cost_saved_usd)}">${signed(d.cost_saved_usd, " USD")}</span></div>
+            </div>
+          </div>
+        `;
+      }
+
+      function latencyRows(latency) {
+        const names = [
+          ["TTFT", "ttft_ms"],
+          ["ITL", "itl_ms"],
+          ["E2E latency", "e2e_latency_ms"],
+        ];
+        return names.map(([label, key]) => {
+          const value = latency[key] || {};
+          return `<tr><td>${label}</td><td>p95 ${fmt.format(value.p95 ?? 0)} ms / p99 ${fmt.format(value.p99 ?? 0)} ms</td></tr>`;
+        }).join("");
+      }
+
+      function technicalAppendix(summary) {
+        const p = summary.pricing;
+        const warnings = summary.warnings.map((w) => `<li>${text(w)}</li>`).join("") || "<li>None</li>";
+        const formulas = summary.formulas.map((f) => `<li>${text(f)}</li>`).join("");
+        return `
+          <details class="details-section">
+            <summary><span>Technical Appendix</span><span>Capacity inputs, workload mix, measured resources, warnings, and formulas</span></summary>
+            <div class="section-body">
+              <div class="cost-overview">
+                <div class="cost-block">
+                  <h3>Capacity Inputs</h3>
+                  <table class="table">
+                    <tbody>
+                      ${row("Hourly cost / GPU", p?.formula_inputs?.hourly_cost_per_gpu_usd)}
+                      ${textRow("Hourly cost source", p?.formula_inputs?.hourly_cost_source)}
+                      ${row("SLA input throughput / GPU", p?.formula_inputs?.sla_input_tokens_per_second_per_gpu)}
+                      ${row("SLA output throughput / GPU", p?.formula_inputs?.sla_output_tokens_per_second_per_gpu)}
+                      ${row("Target utilization", p?.formula_inputs?.target_utilization)}
+                      ${row("HA factor", p?.formula_inputs?.high_availability_factor)}
+                      ${row("Other business factor", p?.formula_inputs?.other_business_factor)}
+                      ${row("Target gross margin", p?.formula_inputs?.target_gross_margin)}
+                    </tbody>
+                  </table>
+                </div>
+                <div class="cost-block">
+                  <h3>Workload Mix</h3>
+                  <table class="table">
+                    <tbody>
+                      ${row("Average input tokens", p?.request_mix?.average_sla_input_tokens_per_request)}
+                      ${row("Average output tokens", p?.request_mix?.average_sla_output_tokens_per_request)}
+                      ${row("Input token share", p?.request_mix?.input_token_share)}
+                      ${row("Output token share", p?.request_mix?.output_token_share)}
+                      ${row("Observed SLA RPS", p?.request_mix?.observed_sla_requests_per_second)}
+                      ${row("Sellable input / GPU-hour", p?.effective_capacity?.sellable_input_1m_tokens_per_gpu_hour)}
+                      ${row("Sellable output / GPU-hour", p?.effective_capacity?.sellable_output_1m_tokens_per_gpu_hour)}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="cost-overview stack-gap">
+                <div class="cost-block">
+                  <h3>Measured Cost And Resources</h3>
+                  <table class="table">
+                    <tbody>
+                      ${row("Total run cost", summary.cost.total_cost_usd)}
+                      ${textRow("Cost source", summary.cost.cost_source)}
+                      ${row("Total cost / GPU-hour", summary.cost.cost_breakdown?.total_cost_per_gpu_hour_usd)}
+                      ${row("Allocated non-power cost", summary.cost.gpu_usage_cost_usd)}
+                      ${row("Allocated power cost", summary.cost.measured_power_cost_usd)}
+                      ${row("Cost / 1M input+output", summary.cost.cost_per_1m_total_tokens_usd)}
+                      ${row("Cost / minute", summary.cost.cost_per_minute_usd)}
+                      ${row("Average power", summary.resources.avg_power_watts)}
+                      ${row("GPU-hours", summary.resources.gpu_hours_total)}
+                    </tbody>
+                  </table>
+                </div>
+                <div class="cost-block">
+                  <h3>Warnings</h3>
+                  <ul class="formula-list">${warnings}</ul>
+                  <h3 class="stack-gap">Formula Version</h3>
+                  <ul class="formula-list">${formulas}</ul>
+                </div>
+              </div>
+            </div>
+          </details>
+        `;
+      }
+
+      function render(summary) {
+        const h = summary.headline;
+        const p = summary.pricing;
+        const capacitySurplus = asValue(p?.effective_capacity?.capacity_surplus_gpus);
+
+        document.getElementById("app").innerHTML = `
+          <div class="report-header">
+            <div>
+              <h1>${summary.run.name}</h1>
+              <div class="subtitle">${summary.run.model_name} | ${summary.run.backend} | ${summary.run.deployment_shape || ""}</div>
+            </div>
+            <span class="badge">Generated ${new Date(summary.generated_at).toLocaleString()}</span>
+          </div>
+
+          <section class="focus">
+            <div>
+              <div class="focus-title">Pricing Summary</div>
+              <div class="read-first">
+                <strong>Read this first:</strong> quote input/output prices from the two large numbers below, check capacity headroom on the right, then use the Data Inputs table to see exactly where users edit files, upload artifacts, or fill future form fields.
+              </div>
+              <div class="price-pair">
+                <div class="price-tile">
+                  <div class="price-label">Suggested / 1M input tokens</div>
+                  <div class="price-value">${formatMetric(h.suggested_input_price_per_1m_tokens_usd)}</div>
+                  <div class="price-unit">observed cost ${formatMetric(h.cost_per_1m_input_tokens_usd)}</div>
+                </div>
+                <div class="price-tile">
+                  <div class="price-label">Suggested / 1M output tokens</div>
+                  <div class="price-value">${formatMetric(h.suggested_output_price_per_1m_tokens_usd)}</div>
+                  <div class="price-unit">observed cost ${formatMetric(h.cost_per_1m_output_tokens_usd)}</div>
+                </div>
+              </div>
+              <div class="summary-strip">
+                ${summaryItem("Blended suggested price", h.suggested_mixed_price_per_1m_tokens_usd)}
+                ${summaryItem("SLA-goodput", h.sla_goodput_output_tokens_per_second)}
+                ${summaryItem("Perf/$", h.perf_per_dollar)}
+              </div>
+            </div>
+
+            <div class="signal-panel">
+              ${signal("Observed average GPUs", p?.effective_capacity?.observed_average_gpu_count)}
+              ${signal("Required GPUs with HA", p?.effective_capacity?.required_gpus_with_ha)}
+              ${signal("Capacity headroom", p?.effective_capacity?.capacity_surplus_gpus, capacitySurplus)}
+              ${signal("SLA pass rate", summary.throughput.sla_pass_rate)}
+              ${signal("p95 TTFT", { value: summary.latency.ttft_ms?.p95, unit: "ms" })}
+            </div>
+          </section>
+
+          ${costFactorBreakdown(summary)}
+
+          <div class="detail-grid">
+            <div class="panel">
+              <div class="panel-header"><h2>Throughput Quality</h2></div>
+              <div class="panel-body">${bars(summary)}</div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header"><h2>Latency</h2></div>
+              <div class="panel-body">
+                <table class="table"><tbody>${latencyRows(summary.latency)}</tbody></table>
+              </div>
+            </div>
+
+            ${baselinePanel(summary)}
+          </div>
+
+          ${pricingMatrix(summary)}
+          ${costFactorAppendix(summary)}
+          ${dataInputs(summary)}
+          ${inputSnapshots(summary)}
+          ${technicalAppendix(summary)}
+        `;
+      }
+
+      fetch("./economics-summary.json")
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        })
+        .then(render)
+        .catch((error) => {
+          document.getElementById("app").innerHTML = `<section class="section warning"><div class="section-body">Failed to load economics-summary.json: ${error.message}</div></section>`;
+        });
+    </script>
+  </body>
+</html>

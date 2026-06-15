@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { organizations, type Organization, type OrgMember, APIError } from '../api/client';
+import { organizations, type Organization, APIError } from '../api/client';
 import { useToast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/LoadingSkeleton';
