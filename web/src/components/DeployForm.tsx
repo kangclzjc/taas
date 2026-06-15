@@ -195,47 +195,51 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
         </FormSection>
 
         {/* ── Hardware ────────────────────────────────── */}
-        <FormSection title="Hardware">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-            <FormField label="GPU Type">
-              <GpuTypeInput value={config.gpu_type || ''} onChange={setGlobalGpuType} />
-            </FormField>
-            <FormField label="GPUs per replica">
-              <input type="number" className="form-input" min={1} max={16}
-                value={config.gpu_count_per_replica} onChange={(e) => set('gpu_count_per_replica', +e.target.value)} />
-            </FormField>
-            {isDGDR && (
-              <FormField label="GPUs per node">
-                <input type="number" className="form-input" min={1} max={16}
-                  value={config.num_gpus_per_node} onChange={(e) => set('num_gpus_per_node', +e.target.value)} />
+        {!usesFixedDisaggReplicas && (
+          <FormSection title="Hardware">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <FormField label="GPU Type">
+                <GpuTypeInput value={config.gpu_type || ''} onChange={setGlobalGpuType} />
               </FormField>
-            )}
-          </div>
-        </FormSection>
+              <FormField label="GPUs per replica">
+                <input type="number" className="form-input" min={1} max={16}
+                  value={config.gpu_count_per_replica} onChange={(e) => set('gpu_count_per_replica', +e.target.value)} />
+              </FormField>
+              {isDGDR && (
+                <FormField label="GPUs per node">
+                  <input type="number" className="form-input" min={1} max={16}
+                    value={config.num_gpus_per_node} onChange={(e) => set('num_gpus_per_node', +e.target.value)} />
+                </FormField>
+              )}
+            </div>
+          </FormSection>
+        )}
 
         {/* ── Parallelism ────────────────────────────── */}
-        <FormSection title="Parallelism">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <FormField label="Tensor Parallel (TP)">
-              <div style={{ display: 'flex', gap: 4 }}>
-                {TP_OPTIONS.map((v) => (
-                  <button key={v} type="button"
-                    className={`btn btn-sm ${config.tensor_parallel_size === v ? 'btn-primary' : ''}`}
-                    onClick={() => set('tensor_parallel_size', v)}>{v}</button>
-                ))}
-              </div>
-            </FormField>
-            <FormField label="Pipeline Parallel (PP)">
-              <div style={{ display: 'flex', gap: 4 }}>
-                {PP_OPTIONS.map((v) => (
-                  <button key={v} type="button"
-                    className={`btn btn-sm ${config.pipeline_parallel_size === v ? 'btn-primary' : ''}`}
-                    onClick={() => set('pipeline_parallel_size', v)}>{v}</button>
-                ))}
-              </div>
-            </FormField>
-          </div>
-        </FormSection>
+        {!usesFixedDisaggReplicas && (
+          <FormSection title="Parallelism">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <FormField label="Tensor Parallel (TP)">
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {TP_OPTIONS.map((v) => (
+                    <button key={v} type="button"
+                      className={`btn btn-sm ${config.tensor_parallel_size === v ? 'btn-primary' : ''}`}
+                      onClick={() => set('tensor_parallel_size', v)}>{v}</button>
+                  ))}
+                </div>
+              </FormField>
+              <FormField label="Pipeline Parallel (PP)">
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {PP_OPTIONS.map((v) => (
+                    <button key={v} type="button"
+                      className={`btn btn-sm ${config.pipeline_parallel_size === v ? 'btn-primary' : ''}`}
+                      onClick={() => set('pipeline_parallel_size', v)}>{v}</button>
+                  ))}
+                </div>
+              </FormField>
+            </div>
+          </FormSection>
+        )}
 
         {/* ── Replica Control ────────────────────────── */}
         {isDGD && (
@@ -261,67 +265,67 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
 
         {/* ── Scaling ────────────────────────────────── */}
         {!usesFixedDisaggReplicas && (
-        <FormSection title={autoscalingEnabled ? 'Scaling Bounds' : 'Fixed Replica Defaults'}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <FormField label={autoscalingEnabled ? 'Min replicas' : 'Worker replicas'}>
-              <input type="number" className="form-input" min={1} max={32}
-                value={config.replicas_min} onChange={(e) => set('replicas_min', +e.target.value)} />
-            </FormField>
-            {autoscalingEnabled ? (
-              <FormField label="Max replicas">
+          <FormSection title={autoscalingEnabled ? 'Scaling Bounds' : 'Fixed Replica Defaults'}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <FormField label={autoscalingEnabled ? 'Min replicas' : 'Worker replicas'}>
                 <input type="number" className="form-input" min={1} max={32}
-                  value={config.replicas_max} onChange={(e) => set('replicas_max', +e.target.value)} />
+                  value={config.replicas_min} onChange={(e) => set('replicas_min', +e.target.value)} />
               </FormField>
-            ) : (
-              <FormField label="Replica policy">
-                <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
-                  Fixed at deploy time
-                </div>
-              </FormField>
-            )}
-          </div>
-        </FormSection>
+              {autoscalingEnabled ? (
+                <FormField label="Max replicas">
+                  <input type="number" className="form-input" min={1} max={32}
+                    value={config.replicas_max} onChange={(e) => set('replicas_max', +e.target.value)} />
+                </FormField>
+              ) : (
+                <FormField label="Replica policy">
+                  <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
+                    Fixed at deploy time
+                  </div>
+                </FormField>
+              )}
+            </div>
+          </FormSection>
         )}
 
         {/* ── SLA / Planner Targets ─────────────────── */}
         {(isDGDR || autoscalingEnabled) && (
-        <FormSection title={isDGDR ? 'SLA Targets & Workload Profile' : 'Planner Autoscaling Targets'}>
-          <div style={{ display: 'grid', gridTemplateColumns: isDGDR ? '1fr 1fr 1fr 1fr' : '1fr 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
-            <FormField label="TTFT target (ms)">
-              <input type="number" className="form-input" min={0} step={10}
-                value={config.target_ttft_ms} onChange={(e) => set('target_ttft_ms', +e.target.value)} />
-            </FormField>
-            <FormField label="ITL target (ms)">
-              <input type="number" className="form-input" min={0} step={1}
-                value={config.target_itl_ms} onChange={(e) => set('target_itl_ms', +e.target.value)} />
-            </FormField>
-            {isDGDR ? (
-              <>
-                <FormField label="Input seq length">
-                  <input type="number" className="form-input" min={1}
-                    value={config.input_sequence_length} onChange={(e) => set('input_sequence_length', +e.target.value)} />
-                </FormField>
-                <FormField label="Output seq length">
-                  <input type="number" className="form-input" min={1}
-                    value={config.output_sequence_length} onChange={(e) => set('output_sequence_length', +e.target.value)} />
-                </FormField>
-              </>
-            ) : null}
-          </div>
-          {isDGDR && (
-            <FormField label="Search strategy">
-              <div style={{ display: 'flex', gap: 8 }}>
-                {(['rapid', 'thorough'] as const).map((s) => (
-                  <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                    <input type="radio" name="search" checked={config.search_strategy === s}
-                      onChange={() => set('search_strategy', s)} />
-                    <span style={{ fontSize: 14 }}>{s === 'rapid' ? '⚡ Rapid' : '🔬 Thorough'}</span>
-                  </label>
-                ))}
-              </div>
-            </FormField>
-          )}
-        </FormSection>
+          <FormSection title={isDGDR ? 'SLA Targets & Workload Profile' : 'Planner Autoscaling Targets'}>
+            <div style={{ display: 'grid', gridTemplateColumns: isDGDR ? '1fr 1fr 1fr 1fr' : '1fr 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
+              <FormField label="TTFT target (ms)">
+                <input type="number" className="form-input" min={0} step={10}
+                  value={config.target_ttft_ms} onChange={(e) => set('target_ttft_ms', +e.target.value)} />
+              </FormField>
+              <FormField label="ITL target (ms)">
+                <input type="number" className="form-input" min={0} step={1}
+                  value={config.target_itl_ms} onChange={(e) => set('target_itl_ms', +e.target.value)} />
+              </FormField>
+              {isDGDR ? (
+                <>
+                  <FormField label="Input seq length">
+                    <input type="number" className="form-input" min={1}
+                      value={config.input_sequence_length} onChange={(e) => set('input_sequence_length', +e.target.value)} />
+                  </FormField>
+                  <FormField label="Output seq length">
+                    <input type="number" className="form-input" min={1}
+                      value={config.output_sequence_length} onChange={(e) => set('output_sequence_length', +e.target.value)} />
+                  </FormField>
+                </>
+              ) : null}
+            </div>
+            {isDGDR && (
+              <FormField label="Search strategy">
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['rapid', 'thorough'] as const).map((s) => (
+                    <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                      <input type="radio" name="search" checked={config.search_strategy === s}
+                        onChange={() => set('search_strategy', s)} />
+                      <span style={{ fontSize: 14 }}>{s === 'rapid' ? '⚡ Rapid' : '🔬 Thorough'}</span>
+                    </label>
+                  ))}
+                </div>
+              </FormField>
+            )}
+          </FormSection>
         )}
 
         {/* ── Disaggregated Serving ──────────────────── */}
@@ -384,7 +388,7 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
               </FormField>
               <FormField label="Dynamo namespace">
                 <input type="text" className="form-input"
-                  value={config.dynamo_namespace ?? ''} placeholder="auto"
+                  value={config.dynamo_namespace ?? ''} placeholder="operator default"
                   onChange={(e) => set('dynamo_namespace', e.target.value || undefined)} />
               </FormField>
             </div>
@@ -645,8 +649,9 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
   }
 
   // DGD preview
-  const ns = config.dynamo_namespace || `taas-${config.name}`;
-  const profileCm = `planner-profile-data-${config.name}`;
+  const dgdName = 'dgd-<deployment-id>';
+  const ns = config.dynamo_namespace || '<operator-configured-dynamo-namespace>';
+  const profileCm = `planner-profile-data-${dgdName}`;
   const autoscalingEnabled = config.autoscaling_enabled !== false;
   const prefillGpu = config.prefill_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1;
   const decodeGpu = config.decode_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1;
@@ -673,7 +678,7 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
     `apiVersion: nvidia.com/v1alpha1`,
     `kind: DynamoGraphDeployment`,
     `metadata:`,
-    `  name: ${config.name}`,
+    `  name: ${dgdName}`,
     `spec:`,
     `  services:`,
     `    Frontend:`,

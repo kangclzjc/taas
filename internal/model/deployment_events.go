@@ -75,35 +75,35 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 	if d.DecodeGPUType != "" {
 		payload["decode_gpu_type"] = d.DecodeGPUType
 	}
-	if cfg.PrefillGPUCountPerReplica > 0 {
-		payload["prefill_gpu_count_per_replica"] = cfg.PrefillGPUCountPerReplica
+	if d.PrefillGPUCountPerReplica > 0 {
+		payload["prefill_gpu_count_per_replica"] = d.PrefillGPUCountPerReplica
 	}
-	if cfg.DecodeGPUCountPerReplica > 0 {
-		payload["decode_gpu_count_per_replica"] = cfg.DecodeGPUCountPerReplica
+	if d.DecodeGPUCountPerReplica > 0 {
+		payload["decode_gpu_count_per_replica"] = d.DecodeGPUCountPerReplica
 	}
-	if cfg.PrefillTensorParallelSize > 0 {
-		payload["prefill_tensor_parallel_size"] = cfg.PrefillTensorParallelSize
+	if d.PrefillTensorParallelSize > 0 {
+		payload["prefill_tensor_parallel_size"] = d.PrefillTensorParallelSize
 	}
-	if cfg.DecodeTensorParallelSize > 0 {
-		payload["decode_tensor_parallel_size"] = cfg.DecodeTensorParallelSize
+	if d.DecodeTensorParallelSize > 0 {
+		payload["decode_tensor_parallel_size"] = d.DecodeTensorParallelSize
 	}
-	if cfg.PrefillPipelineParallelSize > 0 {
-		payload["prefill_pipeline_parallel_size"] = cfg.PrefillPipelineParallelSize
+	if d.PrefillPipelineParallelSize > 0 {
+		payload["prefill_pipeline_parallel_size"] = d.PrefillPipelineParallelSize
 	}
-	if cfg.DecodePipelineParallelSize > 0 {
-		payload["decode_pipeline_parallel_size"] = cfg.DecodePipelineParallelSize
+	if d.DecodePipelineParallelSize > 0 {
+		payload["decode_pipeline_parallel_size"] = d.DecodePipelineParallelSize
 	}
-	if cfg.PrefillBackendImage != "" {
-		payload["prefill_backend_image"] = cfg.PrefillBackendImage
+	if d.PrefillBackendImage != "" {
+		payload["prefill_backend_image"] = d.PrefillBackendImage
 	}
-	if cfg.DecodeBackendImage != "" {
-		payload["decode_backend_image"] = cfg.DecodeBackendImage
+	if d.DecodeBackendImage != "" {
+		payload["decode_backend_image"] = d.DecodeBackendImage
 	}
-	if len(cfg.PrefillExtraArgs) > 0 {
-		payload["prefill_extra_args"] = cfg.PrefillExtraArgs
+	if len(d.PrefillExtraArgs) > 0 {
+		payload["prefill_extra_args"] = d.PrefillExtraArgs
 	}
-	if len(cfg.DecodeExtraArgs) > 0 {
-		payload["decode_extra_args"] = cfg.DecodeExtraArgs
+	if len(d.DecodeExtraArgs) > 0 {
+		payload["decode_extra_args"] = d.DecodeExtraArgs
 	}
 	if cfg.AutoApply != nil {
 		payload["auto_apply"] = *cfg.AutoApply

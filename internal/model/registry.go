@@ -122,6 +122,10 @@ type Deployment struct {
 	DecodeTensorParallelSize    int    `db:"decode_tensor_parallel_size"`
 	PrefillPipelineParallelSize int    `db:"prefill_pipeline_parallel_size"`
 	DecodePipelineParallelSize  int    `db:"decode_pipeline_parallel_size"`
+	PrefillBackendImage         string `db:"prefill_backend_image"`
+	DecodeBackendImage          string `db:"decode_backend_image"`
+	PrefillExtraArgs            map[string]string
+	DecodeExtraArgs             map[string]string
 	SearchStrategy              string `db:"search_strategy"` // AIConfigurator: rapid, thorough
 
 	// DGD-specific (direct deploy, no profiling)
@@ -312,6 +316,10 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		DecodeTensorParallelSize:    decodeTP,
 		PrefillPipelineParallelSize: prefillPP,
 		DecodePipelineParallelSize:  decodePP,
+		PrefillBackendImage:         cfg.PrefillBackendImage,
+		DecodeBackendImage:          cfg.DecodeBackendImage,
+		PrefillExtraArgs:            cfg.PrefillExtraArgs,
+		DecodeExtraArgs:             cfg.DecodeExtraArgs,
 		SearchStrategy:              cfg.SearchStrategy,
 		// DGD-specific
 		FrontendReplicas: cfg.FrontendReplicas,

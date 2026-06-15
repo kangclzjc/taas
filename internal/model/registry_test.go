@@ -148,6 +148,65 @@ func TestDeploy_ComponentGPUTypeDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestDeploy_ComponentRuntimeConfigPersisted(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo)
+
+	orgID := uuid.New()
+	modelID := uuid.New()
+	repo.models[modelID] = &Model{
+		ID:     modelID,
+		OrgID:  orgID,
+		Status: StatusReady,
+	}
+
+	d, err := svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
+		Name:                "runtime-config",
+		PrefillBackendImage: "nvcr.io/example/prefill:latest",
+		DecodeBackendImage:  "nvcr.io/example/decode:latest",
+		PrefillExtraArgs: map[string]string{
+			"--prefill-only": "true",
+		},
+		DecodeExtraArgs: map[string]string{
+			"--decode-only": "true",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.PrefillBackendImage != "nvcr.io/example/prefill:latest" {
+		t.Fatalf("expected prefill image to persist, got %q", d.PrefillBackendImage)
+	}
+	if d.DecodeBackendImage != "nvcr.io/example/decode:latest" {
+		t.Fatalf("expected decode image to persist, got %q", d.DecodeBackendImage)
+	}
+	if d.PrefillExtraArgs["--prefill-only"] != "true" {
+		t.Fatalf("expected prefill extra args to persist, got %#v", d.PrefillExtraArgs)
+	}
+	if d.DecodeExtraArgs["--decode-only"] != "true" {
+		t.Fatalf("expected decode extra args to persist, got %#v", d.DecodeExtraArgs)
+	}
+}
+
+func TestSetDeploymentExtraArgs(t *testing.T) {
+	d := &Deployment{}
+
+	err := setDeploymentExtraArgs(
+		d,
+		[]byte(`{"--prefill-only":"true"}`),
+		[]byte(`{"--decode-only":"true"}`),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.PrefillExtraArgs["--prefill-only"] != "true" {
+		t.Fatalf("expected prefill extra args to decode, got %#v", d.PrefillExtraArgs)
+	}
+	if d.DecodeExtraArgs["--decode-only"] != "true" {
+		t.Fatalf("expected decode extra args to decode, got %#v", d.DecodeExtraArgs)
+	}
+}
+
 func TestDeploy_NotReady(t *testing.T) {
 	repo := newMockRepo()
 	svc := NewService(repo)

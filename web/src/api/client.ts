@@ -212,6 +212,7 @@ export interface Deployment {
   status: string;
   deploy_mode: string;
   backend: string;
+  backend_image: string;
   gpu_type: string;
   gpu_count_per_replica: number;
   tensor_parallel_size: number;
@@ -227,6 +228,10 @@ export interface Deployment {
   decode_tensor_parallel_size: number;
   prefill_pipeline_parallel_size: number;
   decode_pipeline_parallel_size: number;
+  prefill_backend_image: string;
+  decode_backend_image: string;
+  prefill_extra_args: Record<string, string>;
+  decode_extra_args: Record<string, string>;
   replicas_min: number;
   replicas_max: number;
   replicas_current: number;
@@ -295,6 +300,7 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     status: String(pick(raw, 'status', 'Status') ?? ''),
     deploy_mode: String(pick(raw, 'deploy_mode', 'DeployMode') ?? ''),
     backend: String(pick(raw, 'backend', 'Backend') ?? ''),
+    backend_image: String(pick(raw, 'backend_image', 'BackendImage') ?? ''),
     gpu_type: String(pick(raw, 'gpu_type', 'GPUType') ?? ''),
     gpu_count_per_replica: Number(pick(raw, 'gpu_count_per_replica', 'GPUCountPerReplica') ?? 0),
     tensor_parallel_size: Number(pick(raw, 'tensor_parallel_size', 'TensorParallelSize') ?? 0),
@@ -310,6 +316,10 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     decode_tensor_parallel_size: Number(pick(raw, 'decode_tensor_parallel_size', 'DecodeTensorParallelSize') ?? 0),
     prefill_pipeline_parallel_size: Number(pick(raw, 'prefill_pipeline_parallel_size', 'PrefillPipelineParallelSize') ?? 0),
     decode_pipeline_parallel_size: Number(pick(raw, 'decode_pipeline_parallel_size', 'DecodePipelineParallelSize') ?? 0),
+    prefill_backend_image: String(pick(raw, 'prefill_backend_image', 'PrefillBackendImage') ?? ''),
+    decode_backend_image: String(pick(raw, 'decode_backend_image', 'DecodeBackendImage') ?? ''),
+    prefill_extra_args: pick<Record<string, string>>(raw, 'prefill_extra_args', 'PrefillExtraArgs') ?? {},
+    decode_extra_args: pick<Record<string, string>>(raw, 'decode_extra_args', 'DecodeExtraArgs') ?? {},
     replicas_min: Number(pick(raw, 'replicas_min', 'ReplicasMin') ?? 0),
     replicas_max: Number(pick(raw, 'replicas_max', 'ReplicasMax') ?? 0),
     replicas_current: Number(pick(raw, 'replicas_current', 'ReplicasCurrent') ?? 0),
