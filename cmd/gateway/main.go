@@ -175,6 +175,10 @@ func main() {
 	sharingService := model.NewSharingService(dbPool)
 	modelSvc := model.NewService(modelRepo, sharingService)
 	modelHandler := model.NewHandler(modelSvc, sharingService, logger)
+	if cfg.DynamoOperatorURL != "" {
+		modelHandler.SetDeploymentRuntimeStatusProvider(model.NewOperatorStatusClient(cfg.DynamoOperatorURL))
+		logger.Info("model service: Dynamo operator runtime status enabled", zap.String("operator_url", cfg.DynamoOperatorURL))
+	}
 
 	// Model LiteLLM sync: registers Dynamo endpoints in LiteLLM when deployments become ready
 	var modelLiteLLMSvc *model.LiteLLMService

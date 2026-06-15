@@ -223,6 +223,32 @@ export interface Deployment {
   endpoint_url: string | null;
   error_message: string;
   created_at: string;
+  k8s_status?: DeploymentK8sStatus;
+}
+
+export interface DGDServiceRuntime {
+  component_kind?: string;
+  component_name?: string;
+  component_names?: string[];
+  replicas: number;
+  ready_replicas: number;
+  updated_replicas: number;
+}
+
+export interface DeploymentK8sStatus {
+  available: boolean;
+  found: boolean;
+  namespace?: string;
+  dgd_name?: string;
+  generation?: number;
+  observed_generation?: number;
+  ready: boolean;
+  state?: string;
+  ready_reason?: string;
+  ready_message?: string;
+  services?: Record<string, DGDServiceRuntime>;
+  profile_config_maps?: string[];
+  error?: string;
 }
 
 function pick<T = unknown>(obj: Record<string, unknown>, ...keys: string[]): T | undefined {
@@ -251,6 +277,7 @@ function normalizeModel(raw: Record<string, unknown>): Model {
 }
 
 function normalizeDeployment(raw: Record<string, unknown>): Deployment {
+  const k8sStatus = pick<DeploymentK8sStatus>(raw, 'k8s_status', 'K8sStatus');
   return {
     id: String(pick(raw, 'id', 'ID') ?? ''),
     model_id: String(pick(raw, 'model_id', 'ModelID') ?? ''),
@@ -271,6 +298,7 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     endpoint_url: (pick<string>(raw, 'endpoint_url', 'EndpointURL') ?? null),
     error_message: String(pick(raw, 'error_message', 'ErrorMessage') ?? ''),
     created_at: String(pick(raw, 'created_at', 'CreatedAt') ?? new Date().toISOString()),
+    k8s_status: k8sStatus,
   };
 }
 

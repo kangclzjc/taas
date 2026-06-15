@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import nats
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from nats.aio.msg import Msg
 from prometheus_client import Counter, Gauge, make_asgi_app
 
@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
         if settings.operator_crd_mode != "nvidia_dgd":
             raise RuntimeError(f"unsupported TAAS_OPERATOR_CRD_MODE={settings.operator_crd_mode}")
         dgd_client = NvidiaDgdClient(settings)
+    app.state.dgd_client = dgd_client
 
     running_published: set[str] = set()
 
@@ -241,3 +242,20 @@ async def ready():
         "operator_k8s_enabled": settings.operator_k8s_enabled,
         "namespace": settings.dynamo_namespace,
     }
+
+
+@app.get("/deployments/{deployment_id}/k8s-status")
+async def deployment_k8s_status(deployment_id: str):
+    dgd_client = getattr(app.state, "dgd_client", None)
+    if dgd_client is None:
+        return {
+            "available": False,
+            "found": False,
+            "error": "operator Kubernetes mode is disabled",
+            "namespace": settings.dynamo_namespace,
+        }
+    try:
+        return await dgd_client.get_deployment_k8s_status(deployment_id)
+    except Exception as exc:
+        logger.exception("failed to read deployment k8s status", extra={"deployment_id": deployment_id})
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

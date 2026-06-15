@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { models, type Deployment, type DeploymentConfig, type Model } from '../api/client';
+import { models, type Deployment, type DeploymentConfig, type DeploymentK8sStatus, type Model } from '../api/client';
 import { useToast } from '../components/Toast';
 import DeployForm from '../components/DeployForm';
 
@@ -29,6 +29,54 @@ function statusBadge(status: string) {
     pending: 'badge-warning',
   };
   return <span className={`badge ${map[status] ?? 'badge-neutral'}`}>{status}</span>;
+}
+
+function k8sStatusBadge(status?: DeploymentK8sStatus) {
+  if (!status) return null;
+  if (!status.available) {
+    return <span className="badge badge-neutral" title={status.error || 'Kubernetes status is unavailable'}>K8s unknown</span>;
+  }
+  if (!status.found) {
+    return <span className="badge badge-warning" title={status.error || 'DGD was not found'}>DGD missing</span>;
+  }
+  if (status.ready) {
+    return <span className="badge badge-success" title={status.ready_message || 'All DGD resources are ready'}>K8s ready</span>;
+  }
+  return (
+    <span className="badge badge-warning" title={status.ready_message || status.ready_reason || 'DGD resources are not ready'}>
+      K8s not ready
+    </span>
+  );
+}
+
+function serviceRuntime(status: DeploymentK8sStatus | undefined, serviceName: string, label: string) {
+  const svc = status?.services?.[serviceName];
+  if (!svc) return null;
+  return `${label} ${svc.ready_replicas}/${svc.replicas}`;
+}
+
+function runtimeSummary(status?: DeploymentK8sStatus) {
+  if (!status?.found) return null;
+  const parts = [
+    serviceRuntime(status, 'Frontend', 'F'),
+    serviceRuntime(status, 'Planner', 'Pl'),
+    serviceRuntime(status, 'VllmPrefillWorker', 'P'),
+    serviceRuntime(status, 'VllmDecodeWorker', 'D'),
+    serviceRuntime(status, 'VllmWorker', 'W'),
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  const profileMaps = status.profile_config_maps ?? [];
+  const title = [
+    status.dgd_name ? `DGD: ${status.dgd_name}` : undefined,
+    status.namespace ? `Namespace: ${status.namespace}` : undefined,
+    status.ready_message ? `Ready: ${status.ready_message}` : undefined,
+    `Profile ConfigMaps: ${profileMaps.length > 0 ? profileMaps.join(', ') : 'none'}`,
+  ].filter(Boolean).join('\n');
+  return (
+    <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }} title={title}>
+      K8s {parts.join(' · ')}
+    </div>
+  );
 }
 
 function modeBadge(mode: string) {
@@ -404,10 +452,22 @@ print(resp.choices[0].message.content)`;
               <tbody>
                 {deployments.map((dep: any) => (
                   <tr key={dep.id}>
-                    <td style={{ fontWeight: 500 }}>{dep.name || dep.id.slice(0, 8)}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      {dep.name || dep.id.slice(0, 8)}
+                      {dep.k8s_status?.dgd_name ? (
+                        <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }} title={`Namespace: ${dep.k8s_status.namespace || 'unknown'}`}>
+                          {dep.k8s_status.dgd_name}
+                        </div>
+                      ) : null}
+                    </td>
                     <td>{modeBadge(dep.deploy_mode || 'dgd')}</td>
                     <td><span className="badge badge-neutral">{dep.backend || 'vllm'}</span></td>
-                    <td>{statusBadge(dep.status)}</td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                        {statusBadge(dep.status)}
+                        {k8sStatusBadge(dep.k8s_status)}
+                      </div>
+                    </td>
                     <td style={{ fontSize: 13 }}>
                       {dep.gpu_type || '—'}
                       {dep.gpu_count_per_replica > 0 && ` ×${dep.gpu_count_per_replica}`}
@@ -424,6 +484,7 @@ print(resp.choices[0].message.content)`;
                           {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
                         </span>
                       )}
+                      {runtimeSummary(dep.k8s_status)}
                     </td>
                     <td>
                       {dep.endpoint_url ? (

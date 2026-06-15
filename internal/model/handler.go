@@ -20,10 +20,11 @@ var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 
 // Handler holds model management HTTP handlers.
 type Handler struct {
-	svc                    *Service
-	sharing                *SharingService
-	logger                 *zap.Logger
-	onDeploymentDeleted    func(context.Context, uuid.UUID) error
+	svc                   *Service
+	sharing               *SharingService
+	logger                *zap.Logger
+	onDeploymentDeleted   func(context.Context, uuid.UUID) error
+	runtimeStatusProvider DeploymentRuntimeStatusProvider
 }
 
 func NewHandler(svc *Service, sharing *SharingService, logger *zap.Logger) *Handler {
@@ -32,6 +33,15 @@ func NewHandler(svc *Service, sharing *SharingService, logger *zap.Logger) *Hand
 
 func (h *Handler) SetDeploymentDeleteHook(hook func(context.Context, uuid.UUID) error) {
 	h.onDeploymentDeleted = hook
+}
+
+func (h *Handler) SetDeploymentRuntimeStatusProvider(provider DeploymentRuntimeStatusProvider) {
+	h.runtimeStatusProvider = provider
+}
+
+type deploymentListItem struct {
+	*Deployment
+	K8sStatus *DeploymentRuntimeStatus `json:"k8s_status,omitempty"`
 }
 
 type createModelRequest struct {
@@ -47,8 +57,8 @@ type createModelRequest struct {
 }
 
 type deployModelRequest struct {
-	Name               string  `json:"name" binding:"required"`
-	SLATier            SLATier `json:"sla_tier"`
+	Name    string  `json:"name" binding:"required"`
+	SLATier SLATier `json:"sla_tier"`
 
 	// ── Deploy Mode ────────────────────────────────────────────
 	// "dgdr" (default): DynamoGraphDeploymentRequest — SLA-driven, auto-profiling, auto-config.
@@ -77,8 +87,8 @@ type deployModelRequest struct {
 	PipelineParallelSize int `json:"pipeline_parallel_size,omitempty"` // PP degree (default: 1)
 
 	// ── Workload Profile (for DGDR SLA optimization) ──────────
-	InputSequenceLength  int   `json:"input_sequence_length,omitempty"`  // Expected input token length (ISL)
-	OutputSequenceLength int   `json:"output_sequence_length,omitempty"` // Expected output token length (OSL)
+	InputSequenceLength  int `json:"input_sequence_length,omitempty"`  // Expected input token length (ISL)
+	OutputSequenceLength int `json:"output_sequence_length,omitempty"` // Expected output token length (OSL)
 
 	// ── SLA Targets (for DGDR auto-configuration) ─────────────
 	TargetTTFTMs float64 `json:"target_ttft_ms,omitempty"` // Time To First Token target (ms)
@@ -86,15 +96,15 @@ type deployModelRequest struct {
 	TargetTPOTMs float64 `json:"target_tpot_ms,omitempty"` // Time Per Output Token target (ms)
 
 	// ── Disaggregated Serving ─────────────────────────────────
-	DisaggEnabled                  bool   `json:"disagg_enabled,omitempty"`   // Enable prefill/decode disaggregation
-	PrefillReplicas                int    `json:"prefill_replicas,omitempty"` // Number of prefill workers
-	DecodeReplicas                 int    `json:"decode_replicas,omitempty"`  // Number of decode workers
-	PrefillGPUCountPerReplica      int    `json:"prefill_gpu_count_per_replica,omitempty"`
-	DecodeGPUCountPerReplica       int    `json:"decode_gpu_count_per_replica,omitempty"`
-	PrefillTensorParallelSize      int    `json:"prefill_tensor_parallel_size,omitempty"`
-	DecodeTensorParallelSize       int    `json:"decode_tensor_parallel_size,omitempty"`
-	PrefillPipelineParallelSize     int    `json:"prefill_pipeline_parallel_size,omitempty"`
-	DecodePipelineParallelSize      int    `json:"decode_pipeline_parallel_size,omitempty"`
+	DisaggEnabled               bool   `json:"disagg_enabled,omitempty"`   // Enable prefill/decode disaggregation
+	PrefillReplicas             int    `json:"prefill_replicas,omitempty"` // Number of prefill workers
+	DecodeReplicas              int    `json:"decode_replicas,omitempty"`  // Number of decode workers
+	PrefillGPUCountPerReplica   int    `json:"prefill_gpu_count_per_replica,omitempty"`
+	DecodeGPUCountPerReplica    int    `json:"decode_gpu_count_per_replica,omitempty"`
+	PrefillTensorParallelSize   int    `json:"prefill_tensor_parallel_size,omitempty"`
+	DecodeTensorParallelSize    int    `json:"decode_tensor_parallel_size,omitempty"`
+	PrefillPipelineParallelSize int    `json:"prefill_pipeline_parallel_size,omitempty"`
+	DecodePipelineParallelSize  int    `json:"decode_pipeline_parallel_size,omitempty"`
 	PrefillBackendImage         string `json:"prefill_backend_image,omitempty"`
 	DecodeBackendImage          string `json:"decode_backend_image,omitempty"`
 	SearchStrategy              string `json:"search_strategy,omitempty"` // AIConfigurator strategy: rapid, thorough
@@ -103,9 +113,9 @@ type deployModelRequest struct {
 	// These are only used when deploy_mode = "dgd".
 	FrontendReplicas int               `json:"frontend_replicas,omitempty"` // Frontend HTTP server replicas
 	WorkerCommand    string            `json:"worker_command,omitempty"`    // Custom worker command override
-	DynamoNamespace  string            `json:"dynamo_namespace,omitempty"`   // Dynamo service discovery namespace
-	RouterMode       string            `json:"router_mode,omitempty"`        // "random" or "kv" (KV-aware routing)
-	EnvVars          map[string]string `json:"env_vars,omitempty"`           // Extra env vars for workers
+	DynamoNamespace  string            `json:"dynamo_namespace,omitempty"`  // Dynamo service discovery namespace
+	RouterMode       string            `json:"router_mode,omitempty"`       // "random" or "kv" (KV-aware routing)
+	EnvVars          map[string]string `json:"env_vars,omitempty"`          // Extra env vars for workers
 
 	// ── Advanced ──────────────────────────────────────────────
 	MaxBatchSize      int               `json:"max_batch_size"`
@@ -278,21 +288,21 @@ func (h *Handler) DeployModel(c *gin.Context) {
 	}
 
 	d, err := h.svc.Deploy(c.Request.Context(), modelID, oid, DeployConfig{
-		Name:                 req.Name,
-		SLATier:              req.SLATier,
-		DeployMode:           deployMode,
+		Name:       req.Name,
+		SLATier:    req.SLATier,
+		DeployMode: deployMode,
 		// Hardware
-		GPUType:              req.GPUType,
-		GPUCountPerReplica:   req.GPUCountPerReplica,
-		NumGPUsPerNode:       req.NumGPUsPerNode,
-		VRAMMb:               req.VRAMMb,
+		GPUType:            req.GPUType,
+		GPUCountPerReplica: req.GPUCountPerReplica,
+		NumGPUsPerNode:     req.NumGPUsPerNode,
+		VRAMMb:             req.VRAMMb,
 		// Scaling
-		ReplicasMin:          req.ReplicasMin,
-		ReplicasMax:          req.ReplicasMax,
-		AutoscalingEnabled:   req.AutoscalingEnabled,
+		ReplicasMin:        req.ReplicasMin,
+		ReplicasMax:        req.ReplicasMax,
+		AutoscalingEnabled: req.AutoscalingEnabled,
 		// Inference engine
-		Backend:              req.Backend,
-		BackendImage:         req.BackendImage,
+		Backend:      req.Backend,
+		BackendImage: req.BackendImage,
 		// Parallelism
 		TensorParallelSize:   req.TensorParallelSize,
 		PipelineParallelSize: req.PipelineParallelSize,
@@ -300,36 +310,36 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		InputSequenceLength:  req.InputSequenceLength,
 		OutputSequenceLength: req.OutputSequenceLength,
 		// SLA targets
-		TargetTTFTMs:         req.TargetTTFTMs,
-		TargetITLMs:          req.TargetITLMs,
-		TargetTPOTMs:         req.TargetTPOTMs,
+		TargetTTFTMs: req.TargetTTFTMs,
+		TargetITLMs:  req.TargetITLMs,
+		TargetTPOTMs: req.TargetTPOTMs,
 		// Disaggregated serving
-		DisaggEnabled:                  req.DisaggEnabled,
-		PrefillReplicas:                req.PrefillReplicas,
-		DecodeReplicas:                 req.DecodeReplicas,
-		PrefillGPUCountPerReplica:      req.PrefillGPUCountPerReplica,
-		DecodeGPUCountPerReplica:       req.DecodeGPUCountPerReplica,
-		PrefillTensorParallelSize:      req.PrefillTensorParallelSize,
-		DecodeTensorParallelSize:       req.DecodeTensorParallelSize,
-		PrefillPipelineParallelSize:     req.PrefillPipelineParallelSize,
-		DecodePipelineParallelSize:      req.DecodePipelineParallelSize,
-		PrefillBackendImage:             req.PrefillBackendImage,
-		DecodeBackendImage:              req.DecodeBackendImage,
-		SearchStrategy:                  req.SearchStrategy,
+		DisaggEnabled:               req.DisaggEnabled,
+		PrefillReplicas:             req.PrefillReplicas,
+		DecodeReplicas:              req.DecodeReplicas,
+		PrefillGPUCountPerReplica:   req.PrefillGPUCountPerReplica,
+		DecodeGPUCountPerReplica:    req.DecodeGPUCountPerReplica,
+		PrefillTensorParallelSize:   req.PrefillTensorParallelSize,
+		DecodeTensorParallelSize:    req.DecodeTensorParallelSize,
+		PrefillPipelineParallelSize: req.PrefillPipelineParallelSize,
+		DecodePipelineParallelSize:  req.DecodePipelineParallelSize,
+		PrefillBackendImage:         req.PrefillBackendImage,
+		DecodeBackendImage:          req.DecodeBackendImage,
+		SearchStrategy:              req.SearchStrategy,
 		// DGD-specific
-		FrontendReplicas:     req.FrontendReplicas,
-		WorkerCommand:        req.WorkerCommand,
-		DynamoNamespace:      req.DynamoNamespace,
-		RouterMode:           req.RouterMode,
-		EnvVars:              req.EnvVars,
+		FrontendReplicas: req.FrontendReplicas,
+		WorkerCommand:    req.WorkerCommand,
+		DynamoNamespace:  req.DynamoNamespace,
+		RouterMode:       req.RouterMode,
+		EnvVars:          req.EnvVars,
 		// Advanced
-		MaxBatchSize:         req.MaxBatchSize,
-		MaxSequenceLength:    req.MaxSequenceLength,
-		Dtype:                req.Dtype,
-		AutoApply:            req.AutoApply,
-		ExtraArgs:            req.ExtraArgs,
-		PrefillExtraArgs:     req.PrefillExtraArgs,
-		DecodeExtraArgs:      req.DecodeExtraArgs,
+		MaxBatchSize:      req.MaxBatchSize,
+		MaxSequenceLength: req.MaxSequenceLength,
+		Dtype:             req.Dtype,
+		AutoApply:         req.AutoApply,
+		ExtraArgs:         req.ExtraArgs,
+		PrefillExtraArgs:  req.PrefillExtraArgs,
+		DecodeExtraArgs:   req.DecodeExtraArgs,
 	})
 	if err != nil {
 		h.logger.Error("deploying model", zap.Error(err))
@@ -389,7 +399,29 @@ func (h *Handler) ListDeployments(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"deployments": deployments})
+	items := make([]deploymentListItem, 0, len(deployments))
+	for _, dep := range deployments {
+		item := deploymentListItem{Deployment: dep}
+		if h.runtimeStatusProvider != nil && dep.Status != DeploymentStopped {
+			status, statusErr := h.runtimeStatusProvider.GetDeploymentRuntimeStatus(c.Request.Context(), dep.ID)
+			if statusErr != nil {
+				h.logger.Warn(
+					"reading deployment runtime status",
+					zap.Error(statusErr),
+					zap.String("deployment_id", dep.ID.String()),
+				)
+				status = &DeploymentRuntimeStatus{
+					Available: false,
+					Found:     false,
+					Error:     statusErr.Error(),
+				}
+			}
+			item.K8sStatus = status
+		}
+		items = append(items, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"deployments": items})
 }
 
 // DeleteDeployment stops a deployment and requests backend cleanup.

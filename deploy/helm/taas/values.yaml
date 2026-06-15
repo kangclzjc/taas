@@ -24,6 +24,7 @@ gateway:
   replicaCount: 2
   envName: production
   dynamoFrontendUrl: ""
+  dynamoOperatorUrl: ""
   litellmProxyUrl: ""
   corsAllowedOrigins: []
   image:
