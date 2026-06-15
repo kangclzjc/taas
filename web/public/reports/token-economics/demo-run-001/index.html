@@ -1074,8 +1074,8 @@
         document.getElementById("app").innerHTML = `
           <div class="report-header">
             <div>
-              <h1>${summary.run.name}</h1>
-              <div class="subtitle">${summary.run.model_name} | ${summary.run.backend} | ${summary.run.deployment_shape || ""}</div>
+              <h1>${text(summary.run.name)}</h1>
+              <div class="subtitle">${text(summary.run.model_name)} | ${text(summary.run.backend)} | ${text(summary.run.deployment_shape || "")}</div>
             </div>
             <span class="badge">Generated ${new Date(summary.generated_at).toLocaleString()}</span>
           </div>
@@ -1147,7 +1147,7 @@
         })
         .then(render)
         .catch((error) => {
-          document.getElementById("app").innerHTML = `<section class="section warning"><div class="section-body">Failed to load economics-summary.json: ${error.message}</div></section>`;
+          document.getElementById("app").innerHTML = `<section class="section warning"><div class="section-body">Failed to load economics-summary.json: ${text(error.message)}</div></section>`;
         });
     </script>
   </body>

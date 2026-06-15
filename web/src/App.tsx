@@ -1,8 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "./components/Layout";
+import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import ModelsPage from "./pages/ModelsPage";
 import ModelDetailPage from "./pages/ModelDetailPage";
@@ -29,16 +32,16 @@ export default function App() {
         <ToastProvider>
           <BrowserRouter>
             <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
               <Route
-                path="/login"
-                element={<Navigate to="/reports" replace />}
-              />
-              <Route
-                path="/register"
-                element={<Navigate to="/reports" replace />}
-              />
-              <Route element={<Layout />}>
-                <Route path="/" element={<Navigate to="/reports" replace />} />
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/models/:id" element={<ModelDetailPage />} />
@@ -48,7 +51,7 @@ export default function App() {
                 <Route path="/organizations" element={<OrganizationsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
               </Route>
-              <Route path="*" element={<Navigate to="/reports" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </BrowserRouter>
         </ToastProvider>

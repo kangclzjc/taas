@@ -1,4 +1,6 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { auth } from "../api/client";
 
 const LITELLM_URL =
   import.meta.env.VITE_LITELLM_URL ?? "http://localhost:4000/ui";
@@ -13,6 +15,23 @@ const navItems = [
 ];
 
 export default function Layout() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const { data: user } = useQuery({
+    queryKey: ["me"],
+    queryFn: auth.me,
+    retry: false,
+  });
+
+  const handleLogout = () => {
+    auth.logout().catch(() => {});
+    localStorage.removeItem("taas_access_token");
+    localStorage.removeItem("taas_refresh_token");
+    queryClient.clear();
+    navigate("/login");
+  };
+
   return (
     <div className="app-layout">
       <aside className="sidebar">
@@ -51,12 +70,9 @@ export default function Layout() {
           </a>
         </nav>
         <div className="sidebar-footer">
-          <span
-            className="badge badge-info"
-            style={{ width: "100%", justifyContent: "center" }}
-          >
-            Demo Mode
-          </span>
+          <button className="btn btn-ghost" style={{ width: "100%" }} onClick={handleLogout}>
+            🚪 Logout
+          </button>
         </div>
       </aside>
       <div className="main-area">
@@ -75,8 +91,16 @@ export default function Layout() {
             </span>
           </div>
           <div className="header-user">
-            <span className="header-user-name">Demo workspace</span>
-            <span className="badge badge-info">auth bypass</span>
+            {user && (
+              <>
+                <Link to="/profile" style={{ color: "inherit", textDecoration: "none" }}>
+                  <span className="header-user-name" style={{ cursor: "pointer" }}>
+                    {user.name || user.email}
+                  </span>
+                </Link>
+                <span className="badge badge-info">{user.role}</span>
+              </>
+            )}
           </div>
         </header>
         <main className="content">
