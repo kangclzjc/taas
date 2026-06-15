@@ -136,6 +136,7 @@ dynamoOperator:
   nvidiaDgdPlannerImage: ""
   nvidiaDgdImagePullSecretName: ngc-regcred
   nvidiaDgdHfSecretName: hf-token-secret
+  nvidiaDgdGpuNodeLabelKey: ""
   nvidiaHfModelDefault: Qwen/Qwen3-0.6B
   nvidiaFrontendUrlTemplate: "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
   nvidiaResolveFrontendViaK8s: true

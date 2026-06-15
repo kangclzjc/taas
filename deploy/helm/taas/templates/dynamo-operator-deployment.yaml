@@ -70,6 +70,8 @@ spec:
               value: {{ .Values.dynamoOperator.nvidiaDgdImagePullSecretName | quote }}
             - name: TAAS_NVIDIA_DGD_HF_SECRET_NAME
               value: {{ .Values.dynamoOperator.nvidiaDgdHfSecretName | quote }}
+            - name: TAAS_NVIDIA_DGD_GPU_NODE_LABEL_KEY
+              value: {{ .Values.dynamoOperator.nvidiaDgdGpuNodeLabelKey | quote }}
             - name: TAAS_NVIDIA_HF_MODEL_DEFAULT
               value: {{ .Values.dynamoOperator.nvidiaHfModelDefault | quote }}
             - name: TAAS_NVIDIA_FRONTEND_URL_TEMPLATE
