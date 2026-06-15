@@ -213,6 +213,8 @@ export interface Deployment {
   deploy_mode: string;
   backend: string;
   backend_image: string;
+  env_vars: Record<string, string>;
+  extra_args: Record<string, string>;
   gpu_type: string;
   gpu_count_per_replica: number;
   tensor_parallel_size: number;
@@ -301,6 +303,8 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     deploy_mode: String(pick(raw, 'deploy_mode', 'DeployMode') ?? ''),
     backend: String(pick(raw, 'backend', 'Backend') ?? ''),
     backend_image: String(pick(raw, 'backend_image', 'BackendImage') ?? ''),
+    env_vars: pick<Record<string, string>>(raw, 'env_vars', 'EnvVars') ?? {},
+    extra_args: pick<Record<string, string>>(raw, 'extra_args', 'ExtraArgs') ?? {},
     gpu_type: String(pick(raw, 'gpu_type', 'GPUType') ?? ''),
     gpu_count_per_replica: Number(pick(raw, 'gpu_count_per_replica', 'GPUCountPerReplica') ?? 0),
     tensor_parallel_size: Number(pick(raw, 'tensor_parallel_size', 'TensorParallelSize') ?? 0),

@@ -1,0 +1,5 @@
+ALTER TABLE deployments
+  ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE deployments
+  ADD COLUMN IF NOT EXISTS extra_args JSONB NOT NULL DEFAULT '{}'::jsonb;

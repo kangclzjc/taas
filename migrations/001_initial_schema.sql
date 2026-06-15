@@ -96,6 +96,8 @@ CREATE TABLE deployments (
     vram_mb                INT         NOT NULL DEFAULT 0,
     backend                TEXT        NOT NULL DEFAULT '',
     backend_image          TEXT        NOT NULL DEFAULT '',
+    env_vars               JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    extra_args             JSONB       NOT NULL DEFAULT '{}'::jsonb,
     tensor_parallel_size   INT         NOT NULL DEFAULT 1,
     pipeline_parallel_size INT         NOT NULL DEFAULT 1,
     input_sequence_length  INT         NOT NULL DEFAULT 0,

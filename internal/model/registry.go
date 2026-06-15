@@ -96,6 +96,8 @@ type Deployment struct {
 	// Inference engine
 	Backend      string `db:"backend"`       // vllm, sglang, trtllm
 	BackendImage string `db:"backend_image"` // Container image override
+	EnvVars      map[string]string
+	ExtraArgs    map[string]string
 
 	// Parallelism (Dynamo disaggregated serving)
 	TensorParallelSize   int `db:"tensor_parallel_size"`   // TP degree
@@ -294,6 +296,8 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		// Engine
 		Backend:      backend,
 		BackendImage: cfg.BackendImage,
+		EnvVars:      cfg.EnvVars,
+		ExtraArgs:    cfg.ExtraArgs,
 		// Parallelism
 		TensorParallelSize:   tp,
 		PipelineParallelSize: pp,

@@ -162,6 +162,8 @@ func TestDeploy_ComponentRuntimeConfigPersisted(t *testing.T) {
 
 	d, err := svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
 		Name:                "runtime-config",
+		EnvVars:             map[string]string{"HF_HOME": "/models/cache"},
+		ExtraArgs:           map[string]string{"--max-model-len": "4096"},
 		PrefillBackendImage: "nvcr.io/example/prefill:latest",
 		DecodeBackendImage:  "nvcr.io/example/decode:latest",
 		PrefillExtraArgs: map[string]string{
@@ -180,6 +182,12 @@ func TestDeploy_ComponentRuntimeConfigPersisted(t *testing.T) {
 	if d.DecodeBackendImage != "nvcr.io/example/decode:latest" {
 		t.Fatalf("expected decode image to persist, got %q", d.DecodeBackendImage)
 	}
+	if d.EnvVars["HF_HOME"] != "/models/cache" {
+		t.Fatalf("expected env vars to persist, got %#v", d.EnvVars)
+	}
+	if d.ExtraArgs["--max-model-len"] != "4096" {
+		t.Fatalf("expected global extra args to persist, got %#v", d.ExtraArgs)
+	}
 	if d.PrefillExtraArgs["--prefill-only"] != "true" {
 		t.Fatalf("expected prefill extra args to persist, got %#v", d.PrefillExtraArgs)
 	}
@@ -188,16 +196,24 @@ func TestDeploy_ComponentRuntimeConfigPersisted(t *testing.T) {
 	}
 }
 
-func TestSetDeploymentExtraArgs(t *testing.T) {
+func TestSetDeploymentRuntimeMaps(t *testing.T) {
 	d := &Deployment{}
 
-	err := setDeploymentExtraArgs(
+	err := setDeploymentRuntimeMaps(
 		d,
+		[]byte(`{"HF_HOME":"/models/cache"}`),
+		[]byte(`{"--max-model-len":"4096"}`),
 		[]byte(`{"--prefill-only":"true"}`),
 		[]byte(`{"--decode-only":"true"}`),
 	)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.EnvVars["HF_HOME"] != "/models/cache" {
+		t.Fatalf("expected env vars to decode, got %#v", d.EnvVars)
+	}
+	if d.ExtraArgs["--max-model-len"] != "4096" {
+		t.Fatalf("expected global extra args to decode, got %#v", d.ExtraArgs)
 	}
 	if d.PrefillExtraArgs["--prefill-only"] != "true" {
 		t.Fatalf("expected prefill extra args to decode, got %#v", d.PrefillExtraArgs)

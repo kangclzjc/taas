@@ -63,8 +63,8 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 		"max_sequence_length":    d.MaxSequenceLength,
 		"dtype":                  d.Dtype,
 
-		"env_vars":   cfg.EnvVars,
-		"extra_args": cfg.ExtraArgs,
+		"env_vars":   d.EnvVars,
+		"extra_args": d.ExtraArgs,
 	}
 	if cfg.AutoscalingEnabled != nil {
 		payload["autoscaling_enabled"] = *cfg.AutoscalingEnabled
