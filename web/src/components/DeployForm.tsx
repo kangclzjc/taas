@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { DeploymentConfig } from '../api/client';
 
-const GPU_OPTIONS = ['h200_sxm', 'h100_sxm', 'h20', 'l20', 'a100_sxm', 'a10g', 'l40s'];
+const GPU_OPTIONS = ['l20', 'h20', '6000d', '6kd', 'gb200', 'b200', 'h200_sxm', 'h200', 'h100_sxm', 'h100', 'a100_sxm', 'a100', 'l40s', 'a10g'];
+const GPU_TYPE_DATALIST_ID = 'taas-gpu-type-options';
 const TP_OPTIONS = [1, 2, 4, 8];
 const PP_OPTIONS = [1, 2, 4];
 
@@ -34,6 +35,8 @@ const defaultConfig: DeploymentConfig = {
   disagg_enabled: true,
   prefill_replicas: 1,
   decode_replicas: 1,
+  prefill_gpu_type: 'l20',
+  decode_gpu_type: 'l20',
   prefill_gpu_count_per_replica: 1,
   decode_gpu_count_per_replica: 1,
   prefill_tensor_parallel_size: 1,
@@ -66,6 +69,14 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
   const set = <K extends keyof DeploymentConfig>(key: K, value: DeploymentConfig[K]) =>
     setConfig((prev) => ({ ...prev, [key]: value }));
 
+  const setGlobalGpuType = (value: string) =>
+    setConfig((prev) => ({
+      ...prev,
+      gpu_type: value,
+      prefill_gpu_type: !prev.prefill_gpu_type || prev.prefill_gpu_type === prev.gpu_type ? value : prev.prefill_gpu_type,
+      decode_gpu_type: !prev.decode_gpu_type || prev.decode_gpu_type === prev.gpu_type ? value : prev.decode_gpu_type,
+    }));
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalConfig = { ...config };
@@ -83,6 +94,8 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
     }
     if (finalConfig.deploy_mode !== 'dgd') {
       delete finalConfig.autoscaling_enabled;
+      delete finalConfig.prefill_gpu_type;
+      delete finalConfig.decode_gpu_type;
       delete finalConfig.prefill_gpu_count_per_replica;
       delete finalConfig.decode_gpu_count_per_replica;
       delete finalConfig.prefill_tensor_parallel_size;
@@ -101,6 +114,9 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
 
   return (
     <form onSubmit={handleSubmit}>
+      <datalist id={GPU_TYPE_DATALIST_ID}>
+        {GPU_OPTIONS.map((g) => <option key={g} value={g} />)}
+      </datalist>
       <div className="card" style={{ padding: 24, marginBottom: 24 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Deploy {modelName}</h2>
         <p className="text-muted" style={{ fontSize: 13, marginBottom: 20 }}>
@@ -182,9 +198,7 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
         <FormSection title="Hardware">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <FormField label="GPU Type">
-              <select className="form-input" value={config.gpu_type} onChange={(e) => set('gpu_type', e.target.value)}>
-                {GPU_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-              </select>
+              <GpuTypeInput value={config.gpu_type || ''} onChange={setGlobalGpuType} />
             </FormField>
             <FormField label="GPUs per replica">
               <input type="number" className="form-input" min={1} max={16}
@@ -322,11 +336,13 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
               <ComponentProfilePanel
                 title="Prefill"
                 replicas={config.prefill_replicas ?? 1}
+                gpuType={config.prefill_gpu_type || config.gpu_type || 'l20'}
                 gpuCount={config.prefill_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1}
                 tp={config.prefill_tensor_parallel_size ?? config.tensor_parallel_size ?? 1}
                 pp={config.prefill_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1}
                 image={config.prefill_backend_image ?? ''}
                 onReplicas={(v) => set('prefill_replicas', v)}
+                onGpuType={(v) => set('prefill_gpu_type', v)}
                 onGpuCount={(v) => set('prefill_gpu_count_per_replica', v)}
                 onTp={(v) => set('prefill_tensor_parallel_size', v)}
                 onPp={(v) => set('prefill_pipeline_parallel_size', v)}
@@ -335,11 +351,13 @@ export default function DeployForm({ modelName, modelSlug, onSubmit, onCancel, i
               <ComponentProfilePanel
                 title="Decode"
                 replicas={config.decode_replicas ?? 1}
+                gpuType={config.decode_gpu_type || config.gpu_type || 'l20'}
                 gpuCount={config.decode_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1}
                 tp={config.decode_tensor_parallel_size ?? config.tensor_parallel_size ?? 1}
                 pp={config.decode_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1}
                 image={config.decode_backend_image ?? ''}
                 onReplicas={(v) => set('decode_replicas', v)}
+                onGpuType={(v) => set('decode_gpu_type', v)}
                 onGpuCount={(v) => set('decode_gpu_count_per_replica', v)}
                 onTp={(v) => set('decode_tensor_parallel_size', v)}
                 onPp={(v) => set('decode_pipeline_parallel_size', v)}
@@ -477,11 +495,13 @@ function ModeCard({ icon, title, subtitle, active, onClick }: {
 function ComponentProfilePanel({
   title,
   replicas,
+  gpuType,
   gpuCount,
   tp,
   pp,
   image,
   onReplicas,
+  onGpuType,
   onGpuCount,
   onTp,
   onPp,
@@ -489,11 +509,13 @@ function ComponentProfilePanel({
 }: {
   title: string;
   replicas: number;
+  gpuType: string;
   gpuCount: number;
   tp: number;
   pp: number;
   image: string;
   onReplicas: (value: number) => void;
+  onGpuType: (value: string) => void;
   onGpuCount: (value: number) => void;
   onTp: (value: number) => void;
   onPp: (value: number) => void;
@@ -502,10 +524,13 @@ function ComponentProfilePanel({
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
       <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>{title} workers</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
         <FormField label="Replicas">
           <input type="number" className="form-input" min={1} max={64}
             value={replicas} onChange={(e) => onReplicas(+e.target.value)} />
+        </FormField>
+        <FormField label="GPU Type">
+          <GpuTypeInput value={gpuType} onChange={onGpuType} />
         </FormField>
         <FormField label="GPUs / replica">
           <input type="number" className="form-input" min={1} max={16}
@@ -528,6 +553,19 @@ function ComponentProfilePanel({
           onChange={(e) => onImage(e.target.value)} />
       </FormField>
     </div>
+  );
+}
+
+function GpuTypeInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <input
+      type="text"
+      className="form-input"
+      list={GPU_TYPE_DATALIST_ID}
+      value={value}
+      placeholder="l20"
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
 
@@ -612,6 +650,8 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
   const autoscalingEnabled = config.autoscaling_enabled !== false;
   const prefillGpu = config.prefill_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1;
   const decodeGpu = config.decode_gpu_count_per_replica ?? config.gpu_count_per_replica ?? 1;
+  const prefillGpuType = config.prefill_gpu_type || config.gpu_type || 'l20';
+  const decodeGpuType = config.decode_gpu_type || config.gpu_type || 'l20';
   const prefillTp = config.prefill_tensor_parallel_size ?? config.tensor_parallel_size ?? 1;
   const decodeTp = config.decode_tensor_parallel_size ?? config.tensor_parallel_size ?? 1;
   const prefillPp = config.prefill_pipeline_parallel_size ?? config.pipeline_parallel_size ?? 1;
@@ -650,6 +690,7 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
     lines.push(`      componentType: worker`);
     lines.push(`      subComponentType: prefill`);
     lines.push(`      replicas: ${config.prefill_replicas ?? 1}`);
+    lines.push(`      gpuSku: ${prefillGpuType}`);
     lines.push(`      resources:`);
     lines.push(`        limits:`);
     lines.push(`          gpu: "${prefillGpu}"`);
@@ -664,6 +705,7 @@ function generatePreview(config: DeploymentConfig, modelSlug: string): string {
     lines.push(`      componentType: worker`);
     lines.push(`      subComponentType: decode`);
     lines.push(`      replicas: ${config.decode_replicas ?? 1}`);
+    lines.push(`      gpuSku: ${decodeGpuType}`);
     lines.push(`      resources:`);
     lines.push(`        limits:`);
     lines.push(`          gpu: "${decodeGpu}"`);

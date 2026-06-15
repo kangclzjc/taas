@@ -82,12 +82,17 @@ function runtimeSummary(status?: DeploymentK8sStatus) {
 function formatGpuSummary(dep: Deployment): string {
   const gpuType = dep.gpu_type || '—';
   if (dep.disagg_enabled) {
+    const prefillType = dep.prefill_gpu_type || gpuType;
+    const decodeType = dep.decode_gpu_type || gpuType;
     const prefillReplicas = dep.prefill_replicas || 1;
     const decodeReplicas = dep.decode_replicas || 1;
     const prefillGpu = dep.prefill_gpu_count_per_replica || dep.gpu_count_per_replica || 1;
     const decodeGpu = dep.decode_gpu_count_per_replica || dep.gpu_count_per_replica || 1;
     const total = (prefillReplicas * prefillGpu) + (decodeReplicas * decodeGpu);
-    return `${gpuType} P${prefillGpu}×${prefillReplicas} / D${decodeGpu}×${decodeReplicas} (${total} total)`;
+    if (prefillType !== decodeType) {
+      return `P ${prefillType} ${prefillGpu}×${prefillReplicas} / D ${decodeType} ${decodeGpu}×${decodeReplicas} (${total} total)`;
+    }
+    return `${prefillType} P${prefillGpu}×${prefillReplicas} / D${decodeGpu}×${decodeReplicas} (${total} total)`;
   }
   if (dep.gpu_count_per_replica > 0) {
     return `${gpuType} ×${dep.gpu_count_per_replica}`;

@@ -38,7 +38,7 @@ func (m *mockRepo) GetModelBySlug(_ context.Context, _ uuid.UUID, _ string) (*Mo
 func (m *mockRepo) ListModels(_ context.Context, _ ListModelsFilter) ([]*Model, int, error) {
 	return nil, 0, nil
 }
-func (m *mockRepo) UpdateModel(_ context.Context, _ *Model) error { return nil }
+func (m *mockRepo) UpdateModel(_ context.Context, _ *Model) error    { return nil }
 func (m *mockRepo) DeleteModel(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockRepo) CreateDeployment(_ context.Context, d *Deployment) error {
 	m.deployments[d.ID] = d
@@ -102,6 +102,49 @@ func TestDeploy_Success(t *testing.T) {
 	}
 	if d.ModelID != modelID {
 		t.Errorf("expected model ID %s, got %s", modelID, d.ModelID)
+	}
+}
+
+func TestDeploy_ComponentGPUTypeDefaultsAndOverrides(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo)
+
+	orgID := uuid.New()
+	modelID := uuid.New()
+	repo.models[modelID] = &Model{
+		ID:     modelID,
+		OrgID:  orgID,
+		Status: StatusReady,
+	}
+
+	d, err := svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
+		Name:           "hetero-deploy",
+		GPUType:        "l20",
+		PrefillGPUType: "gb200",
+		DecodeGPUType:  "h20",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.GPUType != "l20" {
+		t.Fatalf("expected global gpu type l20, got %q", d.GPUType)
+	}
+	if d.PrefillGPUType != "gb200" {
+		t.Fatalf("expected prefill gpu type gb200, got %q", d.PrefillGPUType)
+	}
+	if d.DecodeGPUType != "h20" {
+		t.Fatalf("expected decode gpu type h20, got %q", d.DecodeGPUType)
+	}
+
+	d, err = svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
+		Name:    "default-deploy",
+		GPUType: "h100_sxm",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.PrefillGPUType != "h100_sxm" || d.DecodeGPUType != "h100_sxm" {
+		t.Fatalf("expected component gpu types to inherit h100_sxm, got prefill=%q decode=%q", d.PrefillGPUType, d.DecodeGPUType)
 	}
 }
 

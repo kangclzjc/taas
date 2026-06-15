@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     nvidia_dgd_planner_image: str = ""
     nvidia_dgd_image_pull_secret_name: str = "ngc-regcred"
     nvidia_dgd_hf_secret_name: str = "hf-token-secret"
+    nvidia_dgd_gpu_node_label_key: str = ""
     nvidia_hf_model_default: str = "Qwen/Qwen3-0.6B"
     nvidia_frontend_url_template: str = "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
     nvidia_resolve_frontend_via_k8s: bool = True

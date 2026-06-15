@@ -180,6 +180,8 @@ export interface DeploymentConfig {
   disagg_enabled?: boolean;
   prefill_replicas?: number;
   decode_replicas?: number;
+  prefill_gpu_type?: string;
+  decode_gpu_type?: string;
   prefill_gpu_count_per_replica?: number;
   decode_gpu_count_per_replica?: number;
   prefill_tensor_parallel_size?: number;
@@ -217,6 +219,8 @@ export interface Deployment {
   disagg_enabled: boolean;
   prefill_replicas: number;
   decode_replicas: number;
+  prefill_gpu_type: string;
+  decode_gpu_type: string;
   prefill_gpu_count_per_replica: number;
   decode_gpu_count_per_replica: number;
   prefill_tensor_parallel_size: number;
@@ -298,6 +302,8 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     disagg_enabled: Boolean(pick(raw, 'disagg_enabled', 'DisaggEnabled') ?? false),
     prefill_replicas: Number(pick(raw, 'prefill_replicas', 'PrefillReplicas') ?? 0),
     decode_replicas: Number(pick(raw, 'decode_replicas', 'DecodeReplicas') ?? 0),
+    prefill_gpu_type: String(pick(raw, 'prefill_gpu_type', 'PrefillGPUType') ?? ''),
+    decode_gpu_type: String(pick(raw, 'decode_gpu_type', 'DecodeGPUType') ?? ''),
     prefill_gpu_count_per_replica: Number(pick(raw, 'prefill_gpu_count_per_replica', 'PrefillGPUCountPerReplica') ?? 0),
     decode_gpu_count_per_replica: Number(pick(raw, 'decode_gpu_count_per_replica', 'DecodeGPUCountPerReplica') ?? 0),
     prefill_tensor_parallel_size: Number(pick(raw, 'prefill_tensor_parallel_size', 'PrefillTensorParallelSize') ?? 0),

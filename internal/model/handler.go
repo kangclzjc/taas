@@ -99,6 +99,8 @@ type deployModelRequest struct {
 	DisaggEnabled               bool   `json:"disagg_enabled,omitempty"`   // Enable prefill/decode disaggregation
 	PrefillReplicas             int    `json:"prefill_replicas,omitempty"` // Number of prefill workers
 	DecodeReplicas              int    `json:"decode_replicas,omitempty"`  // Number of decode workers
+	PrefillGPUType              string `json:"prefill_gpu_type,omitempty"`
+	DecodeGPUType               string `json:"decode_gpu_type,omitempty"`
 	PrefillGPUCountPerReplica   int    `json:"prefill_gpu_count_per_replica,omitempty"`
 	DecodeGPUCountPerReplica    int    `json:"decode_gpu_count_per_replica,omitempty"`
 	PrefillTensorParallelSize   int    `json:"prefill_tensor_parallel_size,omitempty"`
@@ -317,6 +319,8 @@ func (h *Handler) DeployModel(c *gin.Context) {
 		DisaggEnabled:               req.DisaggEnabled,
 		PrefillReplicas:             req.PrefillReplicas,
 		DecodeReplicas:              req.DecodeReplicas,
+		PrefillGPUType:              req.PrefillGPUType,
+		DecodeGPUType:               req.DecodeGPUType,
 		PrefillGPUCountPerReplica:   req.PrefillGPUCountPerReplica,
 		DecodeGPUCountPerReplica:    req.DecodeGPUCountPerReplica,
 		PrefillTensorParallelSize:   req.PrefillTensorParallelSize,

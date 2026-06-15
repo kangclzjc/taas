@@ -15,6 +15,7 @@ class DgdRendererTest(unittest.TestCase):
             nvidia_dgd_version="v1alpha1",
             nvidia_dgd_runtime_image="nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.1.1",
             nvidia_dgd_hf_secret_name="hf-token-secret",
+            nvidia_dgd_gpu_node_label_key="",
             nvidia_hf_model_default="Qwen/Qwen3-0.6B",
             nvidia_dgd_planner_environment="global-planner",
             global_planner_namespace="dynamo-system-gp-ctrl",
@@ -185,6 +186,8 @@ class DgdRendererTest(unittest.TestCase):
         self.assertNotIn("global_planner_namespace", cfg)
 
     def test_render_vllm_disaggregated_fixed_profiled_dgd_omits_planner(self) -> None:
+        settings = self.settings()
+        settings.nvidia_dgd_gpu_node_label_key = "nvidia.com/gpu.product"
         body = render_vllm_agg_dgd(
             {
                 "deployment_id": "7b8c3a9a-1e37-4a44-9f1b-a2c4e8d3f111",
@@ -193,6 +196,9 @@ class DgdRendererTest(unittest.TestCase):
                 "storage_uri": "Qwen/Qwen3-8B",
                 "disagg_enabled": True,
                 "autoscaling_enabled": False,
+                "gpu_type": "l20",
+                "prefill_gpu_type": "gb200",
+                "decode_gpu_type": "h20",
                 "prefill_replicas": 2,
                 "decode_replicas": 3,
                 "gpu_count_per_replica": 1,
@@ -210,7 +216,7 @@ class DgdRendererTest(unittest.TestCase):
                 "prefill_extra_args": {"max-num-batched-tokens": "8192"},
                 "decode_extra_args": {"enable-prefix-caching": True},
             },
-            self.settings(),
+            settings,
             "dynamo-system",
         )
 
@@ -223,6 +229,8 @@ class DgdRendererTest(unittest.TestCase):
         self.assertEqual(decode["replicas"], 3)
         self.assertEqual(prefill["resources"]["limits"]["gpu"], "2")
         self.assertEqual(decode["resources"]["limits"]["gpu"], "4")
+        self.assertEqual(prefill["extraPodSpec"]["nodeSelector"], {"nvidia.com/gpu.product": "gb200"})
+        self.assertEqual(decode["extraPodSpec"]["nodeSelector"], {"nvidia.com/gpu.product": "h20"})
 
         prefill_main = prefill["extraPodSpec"]["mainContainer"]
         decode_main = decode["extraPodSpec"]["mainContainer"]
@@ -239,6 +247,27 @@ class DgdRendererTest(unittest.TestCase):
         self.assertIn("--enable-prefix-caching", decode_main["args"])
         self.assertIn("--gpu-memory-utilization", prefill_main["args"])
         self.assertIn("--gpu-memory-utilization", decode_main["args"])
+
+    def test_render_vllm_disaggregated_fixed_profiled_dgd_omits_node_selector_by_default(self) -> None:
+        body = render_vllm_agg_dgd(
+            {
+                "deployment_id": "7b8c3a9a-1e37-4a44-9f1b-a2c4e8d3f111",
+                "deploy_mode": "dgd",
+                "backend": "vllm",
+                "storage_uri": "Qwen/Qwen3-8B",
+                "disagg_enabled": True,
+                "autoscaling_enabled": False,
+                "gpu_type": "l20",
+                "prefill_gpu_type": "gb200",
+                "decode_gpu_type": "h20",
+            },
+            self.settings(),
+            "dynamo-system",
+        )
+
+        services = body["spec"]["services"]
+        self.assertNotIn("nodeSelector", services["VllmPrefillWorker"]["extraPodSpec"])
+        self.assertNotIn("nodeSelector", services["VllmDecodeWorker"]["extraPodSpec"])
 
     def test_render_profile_config_map_for_disaggregated_planner(self) -> None:
         cm = render_profile_config_map(

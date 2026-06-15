@@ -69,6 +69,12 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 	if cfg.AutoscalingEnabled != nil {
 		payload["autoscaling_enabled"] = *cfg.AutoscalingEnabled
 	}
+	if d.PrefillGPUType != "" {
+		payload["prefill_gpu_type"] = d.PrefillGPUType
+	}
+	if d.DecodeGPUType != "" {
+		payload["decode_gpu_type"] = d.DecodeGPUType
+	}
 	if cfg.PrefillGPUCountPerReplica > 0 {
 		payload["prefill_gpu_count_per_replica"] = cfg.PrefillGPUCountPerReplica
 	}

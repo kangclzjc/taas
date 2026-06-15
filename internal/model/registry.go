@@ -114,6 +114,8 @@ type Deployment struct {
 	DisaggEnabled               bool   `db:"disagg_enabled"`
 	PrefillReplicas             int    `db:"prefill_replicas"`
 	DecodeReplicas              int    `db:"decode_replicas"`
+	PrefillGPUType              string `db:"prefill_gpu_type"`
+	DecodeGPUType               string `db:"decode_gpu_type"`
 	PrefillGPUCountPerReplica   int    `db:"prefill_gpu_count_per_replica"`
 	DecodeGPUCountPerReplica    int    `db:"decode_gpu_count_per_replica"`
 	PrefillTensorParallelSize   int    `db:"prefill_tensor_parallel_size"`
@@ -232,6 +234,18 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 	if pp == 0 {
 		pp = 1
 	}
+	gpuType := cfg.GPUType
+	if gpuType == "" {
+		gpuType = "l20"
+	}
+	prefillGPUType := cfg.PrefillGPUType
+	if prefillGPUType == "" {
+		prefillGPUType = gpuType
+	}
+	decodeGPUType := cfg.DecodeGPUType
+	if decodeGPUType == "" {
+		decodeGPUType = gpuType
+	}
 	prefillGPU := cfg.PrefillGPUCountPerReplica
 	if prefillGPU == 0 {
 		prefillGPU = cfg.GPUCountPerReplica
@@ -266,7 +280,7 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		SLATier:    cfg.SLATier,
 		DeployMode: deployMode,
 		// Hardware
-		GPUType:            cfg.GPUType,
+		GPUType:            gpuType,
 		GPUCountPerReplica: cfg.GPUCountPerReplica,
 		NumGPUsPerNode:     cfg.NumGPUsPerNode,
 		VRAMMb:             cfg.VRAMMb,
@@ -290,6 +304,8 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		DisaggEnabled:               cfg.DisaggEnabled,
 		PrefillReplicas:             cfg.PrefillReplicas,
 		DecodeReplicas:              cfg.DecodeReplicas,
+		PrefillGPUType:              prefillGPUType,
+		DecodeGPUType:               decodeGPUType,
 		PrefillGPUCountPerReplica:   prefillGPU,
 		DecodeGPUCountPerReplica:    decodeGPU,
 		PrefillTensorParallelSize:   prefillTP,
@@ -393,6 +409,8 @@ type DeployConfig struct {
 	DisaggEnabled               bool
 	PrefillReplicas             int
 	DecodeReplicas              int
+	PrefillGPUType              string
+	DecodeGPUType               string
 	PrefillGPUCountPerReplica   int
 	DecodeGPUCountPerReplica    int
 	PrefillTensorParallelSize   int

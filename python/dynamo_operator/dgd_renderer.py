@@ -120,6 +120,36 @@ def _component_extra_args(payload: dict[str, Any], prefix: str) -> dict[str, Any
     return merged
 
 
+def _component_gpu_type(payload: dict[str, Any], prefix: str, default_gpu_type: str) -> str:
+    gpu_type = str(payload.get(f"{prefix}_gpu_type") or default_gpu_type or "").strip()
+    return gpu_type
+
+
+def _node_selector_from_payload(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    selector: dict[str, str] = {}
+    for raw_key, raw_value in value.items():
+        key = str(raw_key).strip()
+        val = str(raw_value).strip()
+        if key and val:
+            selector[key] = val
+    return selector
+
+
+def _component_node_selector(payload: dict[str, Any], settings: Any, prefix: str, default_gpu_type: str) -> dict[str, str]:
+    explicit = _node_selector_from_payload(payload.get(f"{prefix}_node_selector"))
+    if explicit:
+        return explicit
+    label_key = str(_setting(settings, "nvidia_dgd_gpu_node_label_key", "")).strip()
+    if not label_key:
+        return {}
+    gpu_type = _component_gpu_type(payload, prefix, default_gpu_type)
+    if not gpu_type:
+        return {}
+    return {label_key: gpu_type}
+
+
 def _setting(settings: Any, name: str, default: Any) -> Any:
     value = getattr(settings, name, default)
     if value is None:
@@ -257,6 +287,9 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
     image = _runtime_image(payload, settings)
     prefill_image = _component_runtime_image(payload, "prefill", image)
     decode_image = _component_runtime_image(payload, "decode", image)
+    gpu_type = str(payload.get("gpu_type") or "").strip()
+    prefill_node_selector = _component_node_selector(payload, settings, "prefill", gpu_type)
+    decode_node_selector = _component_node_selector(payload, settings, "decode", gpu_type)
     env = _env_list(payload)
     secret = (settings.nvidia_dgd_hf_secret_name or "").strip()
     image_pull_secrets = _image_pull_secrets(settings)
@@ -288,9 +321,10 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
         worker_gpu_count: int,
         worker_tensor_parallel: int,
         worker_pipeline_parallel: int,
+        node_selector: dict[str, str],
     ) -> dict[str, Any]:
         disagg_mode = "prefill" if sub_component == "prefill" else None
-        return {
+        service = {
             "componentType": "worker",
             "subComponentType": sub_component,
             "replicas": replicas,
@@ -316,6 +350,9 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
                 },
             },
         }
+        if node_selector:
+            service["extraPodSpec"]["nodeSelector"] = node_selector
+        return service
 
     planner_environment = str(_setting(settings, "nvidia_dgd_planner_environment", "kubernetes")).strip() or "kubernetes"
     planner_config = {
@@ -377,6 +414,7 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
         worker_gpu_count=prefill_gpu_count,
         worker_tensor_parallel=prefill_tensor_parallel,
         worker_pipeline_parallel=prefill_pipeline_parallel,
+        node_selector=prefill_node_selector,
     )
     decode = worker(
         prefix="decode",
@@ -386,6 +424,7 @@ def render_vllm_disagg_dgd_spec(payload: dict[str, Any], settings: Any) -> dict[
         worker_gpu_count=decode_gpu_count,
         worker_tensor_parallel=decode_tensor_parallel,
         worker_pipeline_parallel=decode_pipeline_parallel,
+        node_selector=decode_node_selector,
     )
     if secret:
         prefill["envFromSecret"] = secret
