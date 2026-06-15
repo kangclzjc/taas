@@ -1,6 +1,7 @@
 {{- if and .Values.dynamoOperator.enabled .Values.dynamoOperator.operatorK8sEnabled (eq .Values.dynamoOperator.operatorCrdMode "nvidia_dgd") .Values.dynamoOperator.nvidiaDgdComponentRbac }}
-# DGD Frontend/worker pods use the dynamo-platform component ServiceAccount. With DYN_DISCOVERY_BACKEND=kubernetes
-# they must list/watch EndpointSlices and CRUD DynamoWorkerMetadata in the same namespace as the graph.
+# DGD component pods use the dynamo-platform component ServiceAccount. With DYN_DISCOVERY_BACKEND=kubernetes
+# frontend/worker pods must list/watch EndpointSlices and CRUD DynamoWorkerMetadata. With Planner
+# environment=kubernetes, the Planner sidecar must also patch the DGD spec to apply autoscaling decisions.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -12,6 +13,9 @@ rules:
   - apiGroups: ["nvidia.com"]
     resources: ["dynamoworkermetadatas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["nvidia.com"]
+    resources: ["dynamographdeployments"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
     verbs: ["get", "list", "watch"]

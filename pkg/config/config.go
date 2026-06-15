@@ -40,6 +40,7 @@ type Config struct {
 
 	// Dynamo
 	DynamoFrontendURL string
+	DynamoOperatorURL string
 }
 
 // Load reads configuration from environment variables (TAAS_*) and a config file.
@@ -95,6 +96,7 @@ func Load(service string) (*Config, error) {
 		OTLPEndpoint:           v.GetString("otlp_endpoint"),
 		LogLevel:               v.GetString("log_level"),
 		DynamoFrontendURL:      v.GetString("dynamo_frontend_url"),
+		DynamoOperatorURL:      v.GetString("dynamo_operator_url"),
 	}
 
 	if err := cfg.validate(); err != nil {

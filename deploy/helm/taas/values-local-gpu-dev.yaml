@@ -1,18 +1,18 @@
 # Layer on values-local.yaml: non-production gateway (TAAS_ENV=development) but real deploy lifecycle —
 # no instant "running" in DB; NATS + dynamo-operator drive status and endpoint.
 #
-# Default here: operator creates DynamoGraphDeployment (vLLM agg) in namespace `dynamo` — matches
-# dynamo-platform on this cluster. Requires DGD CRD + GPU nodes + pullable vllm-runtime image.
+# Default here: operator creates DynamoGraphDeployment in namespace `dynamo-system` — matches
+# the L20 Dynamo v1.1.1 validation cluster. Requires DGD CRD + GPU nodes + pullable vllm-runtime image.
 #
 # Deploy (builds & imports dynamo-operator image):
 #   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh
 #
 # Inference: gateway proxies /v1/* to a single TAAS_DYNAMO_FRONTEND_URL. After a UI deploy succeeds,
 # point it at the new Frontend Service (or run):
-#   DYNAMO_NS=dynamo ./scripts/bind-taas-dynamo-frontend.sh
+#   DYNAMO_NS=dynamo-system ./scripts/bind-taas-dynamo-frontend.sh
 #
 # If your platform uses another namespace, override at install time:
-#   --set dynamoOperator.dynamoNamespace=dynamo-system
+#   --set dynamoOperator.dynamoNamespace=<namespace>
 
 gateway:
   simulateDeployCompletion: false
@@ -27,8 +27,12 @@ dynamoOperator:
   enabled: true
   operatorK8sEnabled: true
   operatorCrdMode: nvidia_dgd
-  dynamoNamespace: dynamo
+  dynamoNamespace: dynamo-system
   mockInferenceBaseUrl: ""
-  nvidiaDgdRuntimeImage: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1
+  nvidiaDgdRuntimeImage: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.1.1
+  nvidiaDgdPlannerImage: nvcr.io/nvidia/ai-dynamo/dynamo-planner:1.1.1
+  nvidiaDgdPlannerEnvironment: global-planner
+  globalPlannerNamespace: dynamo-system-gp-ctrl
+  metricPullingPrometheusEndpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   # Present on clusters with dynamo-platform + hf-token-secret (override to "" if unused)
   nvidiaDgdHfSecretName: hf-token-secret

@@ -31,6 +31,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- include "taas.localImageNodeSelector" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
@@ -70,6 +71,14 @@ spec:
                   key: jwt-signing-key
             - name: TAAS_DYNAMO_FRONTEND_URL
               value: {{ .Values.gateway.dynamoFrontendUrl | quote }}
+            - name: TAAS_DYNAMO_OPERATOR_URL
+              {{ if .Values.gateway.dynamoOperatorUrl }}
+              value: {{ .Values.gateway.dynamoOperatorUrl | quote }}
+              {{ else if .Values.dynamoOperator.enabled }}
+              value: {{ printf "http://%s-dynamo-operator:%d" (include "taas.fullname" .) (.Values.dynamoOperator.service.port | int) | quote }}
+              {{ else }}
+              value: ""
+              {{ end }}
             - name: TAAS_CORS_ALLOWED_ORIGINS
               value: {{ join "," .Values.gateway.corsAllowedOrigins | quote }}
             - name: LITELLM_ENABLED

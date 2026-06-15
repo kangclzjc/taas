@@ -175,11 +175,16 @@ func main() {
 	sharingService := model.NewSharingService(dbPool)
 	modelSvc := model.NewService(modelRepo, sharingService)
 	modelHandler := model.NewHandler(modelSvc, sharingService, logger)
+	if cfg.DynamoOperatorURL != "" {
+		modelHandler.SetDeploymentRuntimeStatusProvider(model.NewOperatorStatusClient(cfg.DynamoOperatorURL))
+		logger.Info("model service: Dynamo operator runtime status enabled", zap.String("operator_url", cfg.DynamoOperatorURL))
+	}
 
 	// Model LiteLLM sync: registers Dynamo endpoints in LiteLLM when deployments become ready
 	var modelLiteLLMSvc *model.LiteLLMService
 	if litellmAdmin != nil {
 		modelLiteLLMSvc = model.NewLiteLLMService(modelSvc, litellmAdmin, modelRepo, logger)
+		modelHandler.SetDeploymentDeleteHook(modelLiteLLMSvc.OnDeploymentStopped)
 		logger.Info("model service: LiteLLM model sync enabled")
 	}
 
@@ -318,6 +323,7 @@ func main() {
 		modelGroup.DELETE("/:id", auth.RequireWriteAccess(), modelHandler.DeleteModel)
 		modelGroup.POST("/:id/deploy", auth.RequireWriteAccess(), modelHandler.DeployModel)
 		modelGroup.POST("/:id/share", auth.RequireAdminAccess(), modelHandler.ShareModel)
+		modelGroup.DELETE("/:id/deployments/:deploymentId", auth.RequireWriteAccess(), modelHandler.DeleteDeployment)
 
 		billingHandler.RegisterRoutes(jwtAuth.Group("/usage"))
 

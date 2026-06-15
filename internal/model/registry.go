@@ -96,6 +96,8 @@ type Deployment struct {
 	// Inference engine
 	Backend      string `db:"backend"`       // vllm, sglang, trtllm
 	BackendImage string `db:"backend_image"` // Container image override
+	EnvVars      map[string]string
+	ExtraArgs    map[string]string
 
 	// Parallelism (Dynamo disaggregated serving)
 	TensorParallelSize   int `db:"tensor_parallel_size"`   // TP degree
@@ -111,10 +113,22 @@ type Deployment struct {
 	TargetTPOTMs float64 `db:"target_tpot_ms"` // Time Per Output Token (ms)
 
 	// Disaggregated serving (P/D separation)
-	DisaggEnabled   bool   `db:"disagg_enabled"`
-	PrefillReplicas int    `db:"prefill_replicas"`
-	DecodeReplicas  int    `db:"decode_replicas"`
-	SearchStrategy  string `db:"search_strategy"` // AIConfigurator: rapid, thorough
+	DisaggEnabled               bool   `db:"disagg_enabled"`
+	PrefillReplicas             int    `db:"prefill_replicas"`
+	DecodeReplicas              int    `db:"decode_replicas"`
+	PrefillGPUType              string `db:"prefill_gpu_type"`
+	DecodeGPUType               string `db:"decode_gpu_type"`
+	PrefillGPUCountPerReplica   int    `db:"prefill_gpu_count_per_replica"`
+	DecodeGPUCountPerReplica    int    `db:"decode_gpu_count_per_replica"`
+	PrefillTensorParallelSize   int    `db:"prefill_tensor_parallel_size"`
+	DecodeTensorParallelSize    int    `db:"decode_tensor_parallel_size"`
+	PrefillPipelineParallelSize int    `db:"prefill_pipeline_parallel_size"`
+	DecodePipelineParallelSize  int    `db:"decode_pipeline_parallel_size"`
+	PrefillBackendImage         string `db:"prefill_backend_image"`
+	DecodeBackendImage          string `db:"decode_backend_image"`
+	PrefillExtraArgs            map[string]string
+	DecodeExtraArgs             map[string]string
+	SearchStrategy              string `db:"search_strategy"` // AIConfigurator: rapid, thorough
 
 	// DGD-specific (direct deploy, no profiling)
 	FrontendReplicas int    `db:"frontend_replicas"` // Frontend HTTP replicas
@@ -151,6 +165,7 @@ type Repository interface {
 	GetDeployment(ctx context.Context, id uuid.UUID) (*Deployment, error)
 	GetActiveDeployment(ctx context.Context, modelID uuid.UUID) (*Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, id uuid.UUID, status DeploymentStatus, endpointURL, errorMsg string) error
+	StopDeployment(ctx context.Context, id uuid.UUID) error
 	ListDeployments(ctx context.Context, modelID uuid.UUID) ([]*Deployment, error)
 	SetDeploymentLiteLLMID(ctx context.Context, id uuid.UUID, litellmModelID string) error
 }
@@ -213,6 +228,10 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 	if backend == "" {
 		backend = "vllm"
 	}
+	deployMode := cfg.DeployMode
+	if deployMode == "" {
+		deployMode = "dgdr"
+	}
 	tp := cfg.TensorParallelSize
 	if tp == 0 {
 		tp = 1
@@ -220,6 +239,42 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 	pp := cfg.PipelineParallelSize
 	if pp == 0 {
 		pp = 1
+	}
+	gpuType := cfg.GPUType
+	if gpuType == "" {
+		gpuType = "l20"
+	}
+	prefillGPUType := cfg.PrefillGPUType
+	if prefillGPUType == "" {
+		prefillGPUType = gpuType
+	}
+	decodeGPUType := cfg.DecodeGPUType
+	if decodeGPUType == "" {
+		decodeGPUType = gpuType
+	}
+	prefillGPU := cfg.PrefillGPUCountPerReplica
+	if prefillGPU == 0 {
+		prefillGPU = cfg.GPUCountPerReplica
+	}
+	decodeGPU := cfg.DecodeGPUCountPerReplica
+	if decodeGPU == 0 {
+		decodeGPU = cfg.GPUCountPerReplica
+	}
+	prefillTP := cfg.PrefillTensorParallelSize
+	if prefillTP == 0 {
+		prefillTP = tp
+	}
+	decodeTP := cfg.DecodeTensorParallelSize
+	if decodeTP == 0 {
+		decodeTP = tp
+	}
+	prefillPP := cfg.PrefillPipelineParallelSize
+	if prefillPP == 0 {
+		prefillPP = pp
+	}
+	decodePP := cfg.DecodePipelineParallelSize
+	if decodePP == 0 {
+		decodePP = pp
 	}
 
 	d := &Deployment{
@@ -229,9 +284,9 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		Name:       cfg.Name,
 		Status:     DeploymentPending,
 		SLATier:    cfg.SLATier,
-		DeployMode: cfg.DeployMode,
+		DeployMode: deployMode,
 		// Hardware
-		GPUType:            cfg.GPUType,
+		GPUType:            gpuType,
 		GPUCountPerReplica: cfg.GPUCountPerReplica,
 		NumGPUsPerNode:     cfg.NumGPUsPerNode,
 		VRAMMb:             cfg.VRAMMb,
@@ -241,6 +296,8 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		// Engine
 		Backend:      backend,
 		BackendImage: cfg.BackendImage,
+		EnvVars:      cfg.EnvVars,
+		ExtraArgs:    cfg.ExtraArgs,
 		// Parallelism
 		TensorParallelSize:   tp,
 		PipelineParallelSize: pp,
@@ -252,10 +309,22 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		TargetITLMs:  cfg.TargetITLMs,
 		TargetTPOTMs: cfg.TargetTPOTMs,
 		// Disaggregated
-		DisaggEnabled:   cfg.DisaggEnabled,
-		PrefillReplicas: cfg.PrefillReplicas,
-		DecodeReplicas:  cfg.DecodeReplicas,
-		SearchStrategy:  cfg.SearchStrategy,
+		DisaggEnabled:               cfg.DisaggEnabled,
+		PrefillReplicas:             cfg.PrefillReplicas,
+		DecodeReplicas:              cfg.DecodeReplicas,
+		PrefillGPUType:              prefillGPUType,
+		DecodeGPUType:               decodeGPUType,
+		PrefillGPUCountPerReplica:   prefillGPU,
+		DecodeGPUCountPerReplica:    decodeGPU,
+		PrefillTensorParallelSize:   prefillTP,
+		DecodeTensorParallelSize:    decodeTP,
+		PrefillPipelineParallelSize: prefillPP,
+		DecodePipelineParallelSize:  decodePP,
+		PrefillBackendImage:         cfg.PrefillBackendImage,
+		DecodeBackendImage:          cfg.DecodeBackendImage,
+		PrefillExtraArgs:            cfg.PrefillExtraArgs,
+		DecodeExtraArgs:             cfg.DecodeExtraArgs,
+		SearchStrategy:              cfg.SearchStrategy,
 		// DGD-specific
 		FrontendReplicas: cfg.FrontendReplicas,
 		WorkerCommand:    cfg.WorkerCommand,
@@ -291,6 +360,26 @@ func (s *Service) MarkDeploymentFailed(ctx context.Context, deploymentID uuid.UU
 	return s.repo.UpdateDeploymentStatus(ctx, deploymentID, DeploymentFailed, "", errorMessage)
 }
 
+// DeleteDeployment stops a deployment and requests backend cleanup.
+func (s *Service) DeleteDeployment(ctx context.Context, modelID, deploymentID, orgID uuid.UUID) error {
+	d, err := s.repo.GetDeployment(ctx, deploymentID)
+	if err != nil {
+		return fmt.Errorf("get deployment: %w", err)
+	}
+	if d == nil || d.ModelID != modelID || d.OrgID != orgID {
+		return fmt.Errorf("deployment not found")
+	}
+	if s.deployPublisher != nil {
+		if err := s.deployPublisher.PublishDeleteRequested(ctx, d); err != nil {
+			return fmt.Errorf("publish deployment delete request: %w", err)
+		}
+	}
+	if err := s.repo.StopDeployment(ctx, deploymentID); err != nil {
+		return fmt.Errorf("mark deployment stopped: %w", err)
+	}
+	return nil
+}
+
 // DeployConfig holds parameters for a new model deployment.
 // These map to NVIDIA Dynamo's CRDs:
 //   - deploy_mode "dgdr" → DynamoGraphDeploymentRequest (auto-profiling, SLA-driven)
@@ -307,8 +396,9 @@ type DeployConfig struct {
 	VRAMMb             int
 
 	// Scaling
-	ReplicasMin int
-	ReplicasMax int
+	ReplicasMin        int
+	ReplicasMax        int
+	AutoscalingEnabled *bool
 
 	// Inference engine
 	Backend      string // vllm, sglang, trtllm
@@ -328,10 +418,20 @@ type DeployConfig struct {
 	TargetTPOTMs float64
 
 	// Disaggregated serving
-	DisaggEnabled   bool
-	PrefillReplicas int
-	DecodeReplicas  int
-	SearchStrategy  string // AIConfigurator: rapid or thorough
+	DisaggEnabled               bool
+	PrefillReplicas             int
+	DecodeReplicas              int
+	PrefillGPUType              string
+	DecodeGPUType               string
+	PrefillGPUCountPerReplica   int
+	DecodeGPUCountPerReplica    int
+	PrefillTensorParallelSize   int
+	DecodeTensorParallelSize    int
+	PrefillPipelineParallelSize int
+	DecodePipelineParallelSize  int
+	PrefillBackendImage         string
+	DecodeBackendImage          string
+	SearchStrategy              string // AIConfigurator: rapid or thorough
 
 	// DGD-specific (direct deploy)
 	FrontendReplicas int               // Frontend HTTP replicas
@@ -346,4 +446,6 @@ type DeployConfig struct {
 	Dtype             string
 	AutoApply         *bool
 	ExtraArgs         map[string]string
+	PrefillExtraArgs  map[string]string
+	DecodeExtraArgs   map[string]string
 }

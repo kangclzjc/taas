@@ -20,6 +20,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- include "taas.localImageNodeSelector" . | nindent 6 }}
       serviceAccountName: {{ include "taas.fullname" . }}-dynamo-operator
       securityContext:
         runAsNonRoot: true
@@ -63,14 +64,26 @@ spec:
               value: {{ .Values.dynamoOperator.nvidiaDgdPlural | quote }}
             - name: TAAS_NVIDIA_DGD_RUNTIME_IMAGE
               value: {{ .Values.dynamoOperator.nvidiaDgdRuntimeImage | quote }}
+            - name: TAAS_NVIDIA_DGD_PLANNER_IMAGE
+              value: {{ .Values.dynamoOperator.nvidiaDgdPlannerImage | quote }}
+            - name: TAAS_NVIDIA_DGD_IMAGE_PULL_SECRET_NAME
+              value: {{ .Values.dynamoOperator.nvidiaDgdImagePullSecretName | quote }}
             - name: TAAS_NVIDIA_DGD_HF_SECRET_NAME
               value: {{ .Values.dynamoOperator.nvidiaDgdHfSecretName | quote }}
+            - name: TAAS_NVIDIA_DGD_GPU_NODE_LABEL_KEY
+              value: {{ .Values.dynamoOperator.nvidiaDgdGpuNodeLabelKey | quote }}
             - name: TAAS_NVIDIA_HF_MODEL_DEFAULT
               value: {{ .Values.dynamoOperator.nvidiaHfModelDefault | quote }}
             - name: TAAS_NVIDIA_FRONTEND_URL_TEMPLATE
               value: {{ .Values.dynamoOperator.nvidiaFrontendUrlTemplate | quote }}
             - name: TAAS_NVIDIA_RESOLVE_FRONTEND_VIA_K8S
               value: {{ ternary "true" "false" .Values.dynamoOperator.nvidiaResolveFrontendViaK8s | quote }}
+            - name: TAAS_NVIDIA_DGD_PLANNER_ENVIRONMENT
+              value: {{ .Values.dynamoOperator.nvidiaDgdPlannerEnvironment | quote }}
+            - name: TAAS_GLOBAL_PLANNER_NAMESPACE
+              value: {{ .Values.dynamoOperator.globalPlannerNamespace | quote }}
+            - name: TAAS_METRIC_PULLING_PROMETHEUS_ENDPOINT
+              value: {{ .Values.dynamoOperator.metricPullingPrometheusEndpoint | quote }}
           resources:
             {{- toYaml .Values.dynamoOperator.resources | nindent 12 }}
           securityContext:

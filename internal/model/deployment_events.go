@@ -12,6 +12,7 @@ import (
 // DeploymentPublisher emits deployment lifecycle requests to async workers/operators.
 type DeploymentPublisher interface {
 	PublishRequested(ctx context.Context, model *Model, d *Deployment, cfg DeployConfig) error
+	PublishDeleteRequested(ctx context.Context, d *Deployment) error
 }
 
 // NATSDeploymentPublisher publishes deployment requests to JetStream.
@@ -62,8 +63,47 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 		"max_sequence_length":    d.MaxSequenceLength,
 		"dtype":                  d.Dtype,
 
-		"env_vars":   cfg.EnvVars,
-		"extra_args": cfg.ExtraArgs,
+		"env_vars":   d.EnvVars,
+		"extra_args": d.ExtraArgs,
+	}
+	if cfg.AutoscalingEnabled != nil {
+		payload["autoscaling_enabled"] = *cfg.AutoscalingEnabled
+	}
+	if d.PrefillGPUType != "" {
+		payload["prefill_gpu_type"] = d.PrefillGPUType
+	}
+	if d.DecodeGPUType != "" {
+		payload["decode_gpu_type"] = d.DecodeGPUType
+	}
+	if d.PrefillGPUCountPerReplica > 0 {
+		payload["prefill_gpu_count_per_replica"] = d.PrefillGPUCountPerReplica
+	}
+	if d.DecodeGPUCountPerReplica > 0 {
+		payload["decode_gpu_count_per_replica"] = d.DecodeGPUCountPerReplica
+	}
+	if d.PrefillTensorParallelSize > 0 {
+		payload["prefill_tensor_parallel_size"] = d.PrefillTensorParallelSize
+	}
+	if d.DecodeTensorParallelSize > 0 {
+		payload["decode_tensor_parallel_size"] = d.DecodeTensorParallelSize
+	}
+	if d.PrefillPipelineParallelSize > 0 {
+		payload["prefill_pipeline_parallel_size"] = d.PrefillPipelineParallelSize
+	}
+	if d.DecodePipelineParallelSize > 0 {
+		payload["decode_pipeline_parallel_size"] = d.DecodePipelineParallelSize
+	}
+	if d.PrefillBackendImage != "" {
+		payload["prefill_backend_image"] = d.PrefillBackendImage
+	}
+	if d.DecodeBackendImage != "" {
+		payload["decode_backend_image"] = d.DecodeBackendImage
+	}
+	if len(d.PrefillExtraArgs) > 0 {
+		payload["prefill_extra_args"] = d.PrefillExtraArgs
+	}
+	if len(d.DecodeExtraArgs) > 0 {
+		payload["decode_extra_args"] = d.DecodeExtraArgs
 	}
 	if cfg.AutoApply != nil {
 		payload["auto_apply"] = *cfg.AutoApply
@@ -83,6 +123,28 @@ func (p *NATSDeploymentPublisher) PublishRequested(ctx context.Context, model *M
 			zap.String("deployment_id", d.ID.String()),
 			zap.String("model_id", d.ModelID.String()),
 			zap.String("deploy_mode", d.DeployMode),
+		)
+	}
+	return nil
+}
+
+func (p *NATSDeploymentPublisher) PublishDeleteRequested(ctx context.Context, d *Deployment) error {
+	payload := map[string]any{
+		"deployment_id": d.ID.String(),
+		"model_id":      d.ModelID.String(),
+		"org_id":        d.OrgID.String(),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal deployment delete payload: %w", err)
+	}
+	if _, err := p.js.Publish("model.deploy.delete_requested", data); err != nil {
+		return fmt.Errorf("publish model.deploy.delete_requested: %w", err)
+	}
+	if p.logger != nil {
+		p.logger.Info("published model.deploy.delete_requested",
+			zap.String("deployment_id", d.ID.String()),
+			zap.String("model_id", d.ModelID.String()),
 		)
 	}
 	return nil

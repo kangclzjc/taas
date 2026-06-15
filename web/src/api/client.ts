@@ -161,6 +161,7 @@ export interface DeploymentConfig {
   // Scaling
   replicas_min?: number;
   replicas_max?: number;
+  autoscaling_enabled?: boolean;
   // Engine
   backend?: 'vllm' | 'sglang' | 'trtllm';
   backend_image?: string;
@@ -179,6 +180,16 @@ export interface DeploymentConfig {
   disagg_enabled?: boolean;
   prefill_replicas?: number;
   decode_replicas?: number;
+  prefill_gpu_type?: string;
+  decode_gpu_type?: string;
+  prefill_gpu_count_per_replica?: number;
+  decode_gpu_count_per_replica?: number;
+  prefill_tensor_parallel_size?: number;
+  decode_tensor_parallel_size?: number;
+  prefill_pipeline_parallel_size?: number;
+  decode_pipeline_parallel_size?: number;
+  prefill_backend_image?: string;
+  decode_backend_image?: string;
   // DGD-specific
   frontend_replicas?: number;
   worker_command?: string;
@@ -190,6 +201,8 @@ export interface DeploymentConfig {
   max_sequence_length?: number;
   dtype?: string;
   extra_args?: Record<string, string>;
+  prefill_extra_args?: Record<string, string>;
+  decode_extra_args?: Record<string, string>;
 }
 
 export interface Deployment {
@@ -199,6 +212,9 @@ export interface Deployment {
   status: string;
   deploy_mode: string;
   backend: string;
+  backend_image: string;
+  env_vars: Record<string, string>;
+  extra_args: Record<string, string>;
   gpu_type: string;
   gpu_count_per_replica: number;
   tensor_parallel_size: number;
@@ -206,12 +222,50 @@ export interface Deployment {
   disagg_enabled: boolean;
   prefill_replicas: number;
   decode_replicas: number;
+  prefill_gpu_type: string;
+  decode_gpu_type: string;
+  prefill_gpu_count_per_replica: number;
+  decode_gpu_count_per_replica: number;
+  prefill_tensor_parallel_size: number;
+  decode_tensor_parallel_size: number;
+  prefill_pipeline_parallel_size: number;
+  decode_pipeline_parallel_size: number;
+  prefill_backend_image: string;
+  decode_backend_image: string;
+  prefill_extra_args: Record<string, string>;
+  decode_extra_args: Record<string, string>;
   replicas_min: number;
   replicas_max: number;
   replicas_current: number;
   endpoint_url: string | null;
   error_message: string;
   created_at: string;
+  k8s_status?: DeploymentK8sStatus;
+}
+
+export interface DGDServiceRuntime {
+  component_kind?: string;
+  component_name?: string;
+  component_names?: string[];
+  replicas: number;
+  ready_replicas: number;
+  updated_replicas: number;
+}
+
+export interface DeploymentK8sStatus {
+  available: boolean;
+  found: boolean;
+  namespace?: string;
+  dgd_name?: string;
+  generation?: number;
+  observed_generation?: number;
+  ready: boolean;
+  state?: string;
+  ready_reason?: string;
+  ready_message?: string;
+  services?: Record<string, DGDServiceRuntime>;
+  profile_config_maps?: string[];
+  error?: string;
 }
 
 function pick<T = unknown>(obj: Record<string, unknown>, ...keys: string[]): T | undefined {
@@ -240,6 +294,7 @@ function normalizeModel(raw: Record<string, unknown>): Model {
 }
 
 function normalizeDeployment(raw: Record<string, unknown>): Deployment {
+  const k8sStatus = pick<DeploymentK8sStatus>(raw, 'k8s_status', 'K8sStatus');
   return {
     id: String(pick(raw, 'id', 'ID') ?? ''),
     model_id: String(pick(raw, 'model_id', 'ModelID') ?? ''),
@@ -247,6 +302,9 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     status: String(pick(raw, 'status', 'Status') ?? ''),
     deploy_mode: String(pick(raw, 'deploy_mode', 'DeployMode') ?? ''),
     backend: String(pick(raw, 'backend', 'Backend') ?? ''),
+    backend_image: String(pick(raw, 'backend_image', 'BackendImage') ?? ''),
+    env_vars: pick<Record<string, string>>(raw, 'env_vars', 'EnvVars') ?? {},
+    extra_args: pick<Record<string, string>>(raw, 'extra_args', 'ExtraArgs') ?? {},
     gpu_type: String(pick(raw, 'gpu_type', 'GPUType') ?? ''),
     gpu_count_per_replica: Number(pick(raw, 'gpu_count_per_replica', 'GPUCountPerReplica') ?? 0),
     tensor_parallel_size: Number(pick(raw, 'tensor_parallel_size', 'TensorParallelSize') ?? 0),
@@ -254,12 +312,25 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     disagg_enabled: Boolean(pick(raw, 'disagg_enabled', 'DisaggEnabled') ?? false),
     prefill_replicas: Number(pick(raw, 'prefill_replicas', 'PrefillReplicas') ?? 0),
     decode_replicas: Number(pick(raw, 'decode_replicas', 'DecodeReplicas') ?? 0),
+    prefill_gpu_type: String(pick(raw, 'prefill_gpu_type', 'PrefillGPUType') ?? ''),
+    decode_gpu_type: String(pick(raw, 'decode_gpu_type', 'DecodeGPUType') ?? ''),
+    prefill_gpu_count_per_replica: Number(pick(raw, 'prefill_gpu_count_per_replica', 'PrefillGPUCountPerReplica') ?? 0),
+    decode_gpu_count_per_replica: Number(pick(raw, 'decode_gpu_count_per_replica', 'DecodeGPUCountPerReplica') ?? 0),
+    prefill_tensor_parallel_size: Number(pick(raw, 'prefill_tensor_parallel_size', 'PrefillTensorParallelSize') ?? 0),
+    decode_tensor_parallel_size: Number(pick(raw, 'decode_tensor_parallel_size', 'DecodeTensorParallelSize') ?? 0),
+    prefill_pipeline_parallel_size: Number(pick(raw, 'prefill_pipeline_parallel_size', 'PrefillPipelineParallelSize') ?? 0),
+    decode_pipeline_parallel_size: Number(pick(raw, 'decode_pipeline_parallel_size', 'DecodePipelineParallelSize') ?? 0),
+    prefill_backend_image: String(pick(raw, 'prefill_backend_image', 'PrefillBackendImage') ?? ''),
+    decode_backend_image: String(pick(raw, 'decode_backend_image', 'DecodeBackendImage') ?? ''),
+    prefill_extra_args: pick<Record<string, string>>(raw, 'prefill_extra_args', 'PrefillExtraArgs') ?? {},
+    decode_extra_args: pick<Record<string, string>>(raw, 'decode_extra_args', 'DecodeExtraArgs') ?? {},
     replicas_min: Number(pick(raw, 'replicas_min', 'ReplicasMin') ?? 0),
     replicas_max: Number(pick(raw, 'replicas_max', 'ReplicasMax') ?? 0),
     replicas_current: Number(pick(raw, 'replicas_current', 'ReplicasCurrent') ?? 0),
     endpoint_url: (pick<string>(raw, 'endpoint_url', 'EndpointURL') ?? null),
     error_message: String(pick(raw, 'error_message', 'ErrorMessage') ?? ''),
     created_at: String(pick(raw, 'created_at', 'CreatedAt') ?? new Date().toISOString()),
+    k8s_status: k8sStatus,
   };
 }
 
@@ -283,6 +354,8 @@ export const models = {
   },
   deploy: async (id: string, config: DeploymentConfig) =>
     normalizeDeployment(await request<Record<string, unknown>>(`/models/${id}/deploy`, { method: 'POST', body: JSON.stringify(config) })),
+  deleteDeployment: (modelId: string, deploymentId: string) =>
+    request(`/models/${modelId}/deployments/${deploymentId}`, { method: 'DELETE' }),
   undeploy: (id: string) =>
     request(`/models/${id}/undeploy`, { method: 'POST' }),
   delete: (id: string) =>

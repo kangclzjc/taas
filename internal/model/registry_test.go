@@ -38,7 +38,7 @@ func (m *mockRepo) GetModelBySlug(_ context.Context, _ uuid.UUID, _ string) (*Mo
 func (m *mockRepo) ListModels(_ context.Context, _ ListModelsFilter) ([]*Model, int, error) {
 	return nil, 0, nil
 }
-func (m *mockRepo) UpdateModel(_ context.Context, _ *Model) error { return nil }
+func (m *mockRepo) UpdateModel(_ context.Context, _ *Model) error    { return nil }
 func (m *mockRepo) DeleteModel(_ context.Context, _ uuid.UUID) error { return nil }
 func (m *mockRepo) CreateDeployment(_ context.Context, d *Deployment) error {
 	m.deployments[d.ID] = d
@@ -56,6 +56,13 @@ func (m *mockRepo) GetActiveDeployment(_ context.Context, _ uuid.UUID) (*Deploym
 }
 func (m *mockRepo) UpdateDeploymentStatus(_ context.Context, _ uuid.UUID, _ DeploymentStatus, _, _ string) error {
 	return nil
+}
+func (m *mockRepo) StopDeployment(_ context.Context, id uuid.UUID) error {
+	if d, ok := m.deployments[id]; ok {
+		d.Status = DeploymentStopped
+		return nil
+	}
+	return fmt.Errorf("deployment not found")
 }
 func (m *mockRepo) ListDeployments(_ context.Context, _ uuid.UUID) ([]*Deployment, error) {
 	return nil, nil
@@ -95,6 +102,124 @@ func TestDeploy_Success(t *testing.T) {
 	}
 	if d.ModelID != modelID {
 		t.Errorf("expected model ID %s, got %s", modelID, d.ModelID)
+	}
+}
+
+func TestDeploy_ComponentGPUTypeDefaultsAndOverrides(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo)
+
+	orgID := uuid.New()
+	modelID := uuid.New()
+	repo.models[modelID] = &Model{
+		ID:     modelID,
+		OrgID:  orgID,
+		Status: StatusReady,
+	}
+
+	d, err := svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
+		Name:           "hetero-deploy",
+		GPUType:        "l20",
+		PrefillGPUType: "gb200",
+		DecodeGPUType:  "h20",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.GPUType != "l20" {
+		t.Fatalf("expected global gpu type l20, got %q", d.GPUType)
+	}
+	if d.PrefillGPUType != "gb200" {
+		t.Fatalf("expected prefill gpu type gb200, got %q", d.PrefillGPUType)
+	}
+	if d.DecodeGPUType != "h20" {
+		t.Fatalf("expected decode gpu type h20, got %q", d.DecodeGPUType)
+	}
+
+	d, err = svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
+		Name:    "default-deploy",
+		GPUType: "h100_sxm",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.PrefillGPUType != "h100_sxm" || d.DecodeGPUType != "h100_sxm" {
+		t.Fatalf("expected component gpu types to inherit h100_sxm, got prefill=%q decode=%q", d.PrefillGPUType, d.DecodeGPUType)
+	}
+}
+
+func TestDeploy_ComponentRuntimeConfigPersisted(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo)
+
+	orgID := uuid.New()
+	modelID := uuid.New()
+	repo.models[modelID] = &Model{
+		ID:     modelID,
+		OrgID:  orgID,
+		Status: StatusReady,
+	}
+
+	d, err := svc.Deploy(context.Background(), modelID, orgID, DeployConfig{
+		Name:                "runtime-config",
+		EnvVars:             map[string]string{"HF_HOME": "/models/cache"},
+		ExtraArgs:           map[string]string{"--max-model-len": "4096"},
+		PrefillBackendImage: "nvcr.io/example/prefill:latest",
+		DecodeBackendImage:  "nvcr.io/example/decode:latest",
+		PrefillExtraArgs: map[string]string{
+			"--prefill-only": "true",
+		},
+		DecodeExtraArgs: map[string]string{
+			"--decode-only": "true",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.PrefillBackendImage != "nvcr.io/example/prefill:latest" {
+		t.Fatalf("expected prefill image to persist, got %q", d.PrefillBackendImage)
+	}
+	if d.DecodeBackendImage != "nvcr.io/example/decode:latest" {
+		t.Fatalf("expected decode image to persist, got %q", d.DecodeBackendImage)
+	}
+	if d.EnvVars["HF_HOME"] != "/models/cache" {
+		t.Fatalf("expected env vars to persist, got %#v", d.EnvVars)
+	}
+	if d.ExtraArgs["--max-model-len"] != "4096" {
+		t.Fatalf("expected global extra args to persist, got %#v", d.ExtraArgs)
+	}
+	if d.PrefillExtraArgs["--prefill-only"] != "true" {
+		t.Fatalf("expected prefill extra args to persist, got %#v", d.PrefillExtraArgs)
+	}
+	if d.DecodeExtraArgs["--decode-only"] != "true" {
+		t.Fatalf("expected decode extra args to persist, got %#v", d.DecodeExtraArgs)
+	}
+}
+
+func TestSetDeploymentRuntimeMaps(t *testing.T) {
+	d := &Deployment{}
+
+	err := setDeploymentRuntimeMaps(
+		d,
+		[]byte(`{"HF_HOME":"/models/cache"}`),
+		[]byte(`{"--max-model-len":"4096"}`),
+		[]byte(`{"--prefill-only":"true"}`),
+		[]byte(`{"--decode-only":"true"}`),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if d.EnvVars["HF_HOME"] != "/models/cache" {
+		t.Fatalf("expected env vars to decode, got %#v", d.EnvVars)
+	}
+	if d.ExtraArgs["--max-model-len"] != "4096" {
+		t.Fatalf("expected global extra args to decode, got %#v", d.ExtraArgs)
+	}
+	if d.PrefillExtraArgs["--prefill-only"] != "true" {
+		t.Fatalf("expected prefill extra args to decode, got %#v", d.PrefillExtraArgs)
+	}
+	if d.DecodeExtraArgs["--decode-only"] != "true" {
+		t.Fatalf("expected decode extra args to decode, got %#v", d.DecodeExtraArgs)
 	}
 }
 

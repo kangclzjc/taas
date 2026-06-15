@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { models, type Deployment, type DeploymentConfig, type Model } from '../api/client';
+import { models, type Deployment, type DeploymentConfig, type DeploymentK8sStatus, type Model } from '../api/client';
 import { useToast } from '../components/Toast';
 import DeployForm from '../components/DeployForm';
 
@@ -11,6 +11,7 @@ import DeployForm from '../components/DeployForm';
 //  2) build-time env VITE_LITELLM_PUBLIC_URL
 //  3) heuristic: same protocol/hostname as the TaaS UI, with port 4001 (the dev SSH-tunnel default)
 const LITELLM_BASE_STORAGE_KEY = 'taas.litellm_base_url';
+const MODEL_DETAIL_REFRESH_MS = 5000;
 
 function defaultLitellmBase(): string {
   if (typeof window === 'undefined') return 'http://127.0.0.1:4001';
@@ -30,9 +31,96 @@ function statusBadge(status: string) {
   return <span className={`badge ${map[status] ?? 'badge-neutral'}`}>{status}</span>;
 }
 
+function k8sStatusBadge(status?: DeploymentK8sStatus) {
+  if (!status) return null;
+  if (!status.available) {
+    return <span className="badge badge-neutral" title={status.error || 'Kubernetes status is unavailable'}>K8s unknown</span>;
+  }
+  if (!status.found) {
+    return <span className="badge badge-warning" title={status.error || 'DGD was not found'}>DGD missing</span>;
+  }
+  if (status.ready) {
+    return <span className="badge badge-success" title={status.ready_message || 'All DGD resources are ready'}>K8s ready</span>;
+  }
+  return (
+    <span className="badge badge-warning" title={status.ready_message || status.ready_reason || 'DGD resources are not ready'}>
+      K8s not ready
+    </span>
+  );
+}
+
+function serviceRuntime(status: DeploymentK8sStatus | undefined, serviceName: string, label: string) {
+  const svc = status?.services?.[serviceName];
+  if (!svc) return null;
+  return `${label} ${svc.ready_replicas}/${svc.replicas}`;
+}
+
+function runtimeSummary(status?: DeploymentK8sStatus) {
+  if (!status?.found) return null;
+  const parts = [
+    serviceRuntime(status, 'Frontend', 'F'),
+    serviceRuntime(status, 'Planner', 'Pl'),
+    serviceRuntime(status, 'VllmPrefillWorker', 'P'),
+    serviceRuntime(status, 'VllmDecodeWorker', 'D'),
+    serviceRuntime(status, 'VllmWorker', 'W'),
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  const profileMaps = status.profile_config_maps ?? [];
+  const title = [
+    status.dgd_name ? `DGD: ${status.dgd_name}` : undefined,
+    status.namespace ? `Namespace: ${status.namespace}` : undefined,
+    status.ready_message ? `Ready: ${status.ready_message}` : undefined,
+    `Profile ConfigMaps: ${profileMaps.length > 0 ? profileMaps.join(', ') : 'none'}`,
+  ].filter(Boolean).join('\n');
+  return (
+    <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }} title={title}>
+      K8s {parts.join(' · ')}
+    </div>
+  );
+}
+
+function formatGpuSummary(dep: Deployment): string {
+  const gpuType = dep.gpu_type || '—';
+  if (dep.disagg_enabled) {
+    const prefillType = dep.prefill_gpu_type || gpuType;
+    const decodeType = dep.decode_gpu_type || gpuType;
+    const prefillReplicas = dep.prefill_replicas || 1;
+    const decodeReplicas = dep.decode_replicas || 1;
+    const prefillGpu = dep.prefill_gpu_count_per_replica || dep.gpu_count_per_replica || 1;
+    const decodeGpu = dep.decode_gpu_count_per_replica || dep.gpu_count_per_replica || 1;
+    const total = (prefillReplicas * prefillGpu) + (decodeReplicas * decodeGpu);
+    if (prefillType !== decodeType) {
+      return `P ${prefillType} ${prefillGpu}×${prefillReplicas} / D ${decodeType} ${decodeGpu}×${decodeReplicas} (${total} total)`;
+    }
+    return `${prefillType} P${prefillGpu}×${prefillReplicas} / D${decodeGpu}×${decodeReplicas} (${total} total)`;
+  }
+  if (dep.gpu_count_per_replica > 0) {
+    return `${gpuType} ×${dep.gpu_count_per_replica}`;
+  }
+  return gpuType;
+}
+
+function formatTopologySummary(dep: Deployment): string {
+  if (dep.disagg_enabled) {
+    const prefillReplicas = dep.prefill_replicas || 1;
+    const decodeReplicas = dep.decode_replicas || 1;
+    const prefillTp = dep.prefill_tensor_parallel_size || dep.tensor_parallel_size || 1;
+    const decodeTp = dep.decode_tensor_parallel_size || dep.tensor_parallel_size || 1;
+    const prefillPp = dep.prefill_pipeline_parallel_size || dep.pipeline_parallel_size || 1;
+    const decodePp = dep.decode_pipeline_parallel_size || dep.pipeline_parallel_size || 1;
+    const prefill = `P${prefillReplicas}${prefillTp > 1 ? ` TP${prefillTp}` : ''}${prefillPp > 1 ? ` PP${prefillPp}` : ''}`;
+    const decode = `D${decodeReplicas}${decodeTp > 1 ? ` TP${decodeTp}` : ''}${decodePp > 1 ? ` PP${decodePp}` : ''}`;
+    return `${prefill} / ${decode}`;
+  }
+  const replicas = dep.replicas_current || dep.replicas_min || 1;
+  const tp = dep.tensor_parallel_size || 1;
+  const pp = dep.pipeline_parallel_size || 1;
+  return `×${replicas}${tp > 1 ? ` TP${tp}` : ''}${pp > 1 ? ` PP${pp}` : ''}`;
+}
+
 function modeBadge(mode: string) {
-  if (mode === 'dgd') return <span className="badge badge-info" title="Direct deploy, no profiling">⚡ DGD</span>;
-  return <span className="badge badge-warning" title="Auto-profiling, SLA-driven">🔬 DGDR</span>;
+  if (mode === 'dgdr') return <span className="badge badge-warning" title="Auto-profiling, SLA-driven">🔬 DGDR</span>;
+  return <span className="badge badge-info" title="Direct deploy, no profiling">⚡ DGD</span>;
 }
 
 function formatParams(n: number) {
@@ -101,6 +189,7 @@ export default function ModelDetailPage() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [showDeployForm, setShowDeployForm] = useState(false);
+  const [deletingDeploymentId, setDeletingDeploymentId] = useState<string | null>(null);
   const [litellmBase, setLitellmBase] = useState<string>(() => defaultLitellmBase());
 
   const saveLitellmBase = (next: string) => {
@@ -117,12 +206,16 @@ export default function ModelDetailPage() {
     queryKey: ['model', id],
     queryFn: () => models.get(id!),
     enabled: !!id,
+    refetchInterval: MODEL_DETAIL_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 
   const { data: deploymentsData, isLoading: deploymentsLoading } = useQuery({
     queryKey: ['model-deployments', id],
     queryFn: () => models.getDeployments(id!),
     enabled: !!id,
+    refetchInterval: MODEL_DETAIL_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 
   const deployMutation = useMutation({
@@ -135,6 +228,24 @@ export default function ModelDetailPage() {
     },
     onError: (err: any) => {
       addToast(`Failed to deploy: ${err.message ?? 'unknown error'}`, 'error');
+    },
+  });
+
+  const deleteDeploymentMutation = useMutation({
+    mutationFn: (deploymentId: string) => models.deleteDeployment(id!, deploymentId),
+    onMutate: (deploymentId: string) => {
+      setDeletingDeploymentId(deploymentId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['model', id] });
+      queryClient.invalidateQueries({ queryKey: ['model-deployments', id] });
+      addToast('Deployment deleted', 'success');
+    },
+    onError: (err: any) => {
+      addToast(`Failed to delete deployment: ${err.message ?? 'unknown error'}`, 'error');
+    },
+    onSettled: () => {
+      setDeletingDeploymentId(null);
     },
   });
 
@@ -159,7 +270,9 @@ export default function ModelDetailPage() {
     );
   }
 
-  const deployments = deploymentsData?.deployments ?? [];
+  const deployments = (deploymentsData?.deployments ?? []).filter(
+    (d: Deployment) => d.status !== 'stopped',
+  );
   const source = parseModelSource(model.storage_uri);
   const nimNotSupported = source.kind === 'nim';
   const slug = modelSlug(model);
@@ -372,31 +485,36 @@ print(resp.choices[0].message.content)`;
                   <th>Topology</th>
                   <th>Internal Endpoint</th>
                   <th>Created</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {deployments.map((dep: any) => (
                   <tr key={dep.id}>
-                    <td style={{ fontWeight: 500 }}>{dep.name || dep.id.slice(0, 8)}</td>
-                    <td>{modeBadge(dep.deploy_mode || 'dgdr')}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      {dep.name || dep.id.slice(0, 8)}
+                      {dep.k8s_status?.dgd_name ? (
+                        <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }} title={`Namespace: ${dep.k8s_status.namespace || 'unknown'}`}>
+                          {dep.k8s_status.dgd_name}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td>{modeBadge(dep.deploy_mode || 'dgd')}</td>
                     <td><span className="badge badge-neutral">{dep.backend || 'vllm'}</span></td>
-                    <td>{statusBadge(dep.status)}</td>
-                    <td style={{ fontSize: 13 }}>
-                      {dep.gpu_type || '—'}
-                      {dep.gpu_count_per_replica > 0 && ` ×${dep.gpu_count_per_replica}`}
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                        {statusBadge(dep.status)}
+                        {k8sStatusBadge(dep.k8s_status)}
+                      </div>
                     </td>
                     <td style={{ fontSize: 13 }}>
-                      {dep.disagg_enabled ? (
-                        <span title="Disaggregated: prefill/decode separation">
-                          P{dep.prefill_replicas || 1}/D{dep.decode_replicas || 1}
-                          {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
-                        </span>
-                      ) : (
-                        <span>
-                          ×{dep.replicas_current || dep.replicas_min || 1}
-                          {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
-                        </span>
-                      )}
+                      {formatGpuSummary(dep)}
+                    </td>
+                    <td style={{ fontSize: 13 }}>
+                      <span title={dep.disagg_enabled ? 'Disaggregated: prefill/decode separation' : 'Replica topology'}>
+                        {formatTopologySummary(dep)}
+                      </span>
+                      {runtimeSummary(dep.k8s_status)}
                     </td>
                     <td>
                       {dep.endpoint_url ? (
@@ -416,6 +534,21 @@ print(resp.choices[0].message.content)`;
                       )}
                     </td>
                     <td style={{ fontSize: 13 }}>{new Date(dep.created_at).toLocaleDateString()}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        disabled={deleteDeploymentMutation.isPending}
+                        title="Delete this deployment and clean up Dynamo resources"
+                        onClick={() => {
+                          const label = dep.name || dep.id.slice(0, 8);
+                          if (!window.confirm(`Delete deployment "${label}"? This will remove the Dynamo deployment resources.`)) return;
+                          deleteDeploymentMutation.mutate(dep.id);
+                        }}
+                      >
+                        {deletingDeploymentId === dep.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

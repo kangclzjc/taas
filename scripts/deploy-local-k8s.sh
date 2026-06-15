@@ -13,8 +13,12 @@
 #
 # Dev gateway + real Dynamo on cluster (no simulated "running"; still TAAS_ENV=development):
 #   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh
-# Uses values-local-gpu-dev.yaml: operator creates DynamoGraphDeployment in dynamoNamespace (default `dynamo`).
+# Uses values-local-gpu-dev.yaml: operator creates DynamoGraphDeployment in dynamoNamespace
+# (default `dynamo-system` for the L20 validation cluster).
 # After deploy, set gateway.dynamoFrontendUrl or run scripts/bind-taas-dynamo-frontend.sh for /v1 proxying.
+#
+# Extra arguments are passed through to `helm upgrade --install`, e.g.:
+#   L20_GPU_DEV=1 ./scripts/deploy-local-k8s.sh --set dynamoOperator.dynamoNamespace=<namespace>
 
 set -euo pipefail
 
@@ -26,6 +30,7 @@ RELEASE="${RELEASE:-taas-local}"
 IMAGE_TAG="${IMAGE_TAG:-local}"
 FULLSTACK="${FULLSTACK:-0}"
 L20_GPU_DEV="${L20_GPU_DEV:-0}"
+EXTRA_HELM_ARGS=("$@")
 
 IMG_GATEWAY="taas-gateway:${IMAGE_TAG}"
 IMG_WEB="taas-web:${IMAGE_TAG}"
@@ -109,6 +114,9 @@ else
   if import_images; then
     HELM_IMAGE_SET+=(--set "global.imageRegistry=")
     HELM_IMAGE_SET+=(--set "image.pullPolicy=Never")
+    LOCAL_IMAGE_NODE_NAME="${LOCAL_IMAGE_NODE_NAME:-$(hostname -s | tr '[:upper:]' '[:lower:]')}"
+    HELM_IMAGE_SET+=(--set "localImages.nodeName=${LOCAL_IMAGE_NODE_NAME}")
+    echo "==> Pinning locally built images to node: ${LOCAL_IMAGE_NODE_NAME}"
   else
     echo "ERROR: Could not import images into containerd." >&2
     echo "Fix one of:" >&2
@@ -134,7 +142,8 @@ helm upgrade --install "${RELEASE}" deploy/helm/taas \
   --create-namespace \
   "${HELM_VALUES_FLAGS[@]}" \
   --set "image.tag=${IMAGE_TAG}" \
-  "${HELM_IMAGE_SET[@]}"
+  "${HELM_IMAGE_SET[@]}" \
+  "${EXTRA_HELM_ARGS[@]}"
 
 PG_POD="$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=postgresql --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')"
 if [[ -z "${PG_POD}" ]]; then
@@ -155,6 +164,13 @@ if [[ "${HAS_LITELLM_DB}" != "1" ]]; then
     -c "CREATE DATABASE litellm"
 fi
 
+apply_sql_migration() {
+  local f="$1"
+  echo "    ${f#${ROOT}/}"
+  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
+    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 <"${f}"
+}
+
 HAS_USERS="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
   env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc "SELECT to_regclass('public.users');" 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ "${HAS_USERS}" == "users" ]]; then
@@ -162,24 +178,22 @@ if [[ "${HAS_USERS}" == "users" ]]; then
 else
   echo "==> Applying SQL migrations (fresh DB only — re-run on existing DB would fail on CREATE TABLE)"
   for f in \
-    migrations/001_initial_schema.up.sql \
-    migrations/002_audit_log.up.sql \
-    migrations/003_organizations.up.sql; do
-    echo "    $f"
-    kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
-      env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 <"$f"
+    "${ROOT}/migrations/001_initial_schema.up.sql" \
+    "${ROOT}/migrations/002_audit_log.up.sql" \
+    "${ROOT}/migrations/003_organizations.up.sql"; do
+    apply_sql_migration "${f}"
   done
 fi
 
-HAS_HF_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
-  env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
-  "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='models' AND column_name='hf_model' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
-if [[ "${HAS_HF_COL}" != "1" ]]; then
-  echo "==> Applying incremental migration: migrations/004_models_hf_model.up.sql"
-  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
-    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 \
-    <"${ROOT}/migrations/004_models_hf_model.up.sql"
-fi
+echo "==> Applying idempotent incremental SQL migrations"
+shopt -s nullglob
+for f in "${ROOT}"/migrations/[0-9][0-9][0-9]_*.up.sql; do
+  case "$(basename "${f}")" in
+    001_*|002_*|003_*) continue ;;
+  esac
+  apply_sql_migration "${f}"
+done
+shopt -u nullglob
 
 if ! kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
   env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc "SELECT to_regclass('public.users');" 2>/dev/null | grep -q users; then

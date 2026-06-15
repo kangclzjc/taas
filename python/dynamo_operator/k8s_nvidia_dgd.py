@@ -6,9 +6,7 @@ Aggregated vLLM pattern — no DGDR / no profiling.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
-import re
 import time
 from typing import Any, Callable, Coroutine, Optional
 
@@ -16,26 +14,14 @@ from kubernetes_asyncio import client, config, watch
 from kubernetes_asyncio.client.exceptions import ApiException
 
 from .config import Settings
+from .dgd_renderer import (
+    dgd_name_for_deployment,
+    render_profile_config_map,
+    render_vllm_agg_dgd,
+    render_vllm_agg_dgd_spec,
+)
 
 logger = logging.getLogger(__name__)
-
-# NVIDIA validating webhook (vdynamographdeployment): len(metadata.name) + len(serviceKey) <= 45 for pod naming.
-# Longest key in our spec is "VllmDecodeWorker" (17) → DGD name must be <= 28 chars.
-_DGD_NAME_MAX_LEN = 28
-
-
-def dgd_name_for_deployment(deployment_id: str) -> str:
-    """Stable short name; full deployment_id stays on label taas.io/deployment-id."""
-    dep = (deployment_id or "").strip().lower()
-    hex_only = dep.replace("-", "")
-    if len(hex_only) == 32 and re.fullmatch(r"[0-9a-f]{32}", hex_only):
-        suffix = hex_only[:24]
-    else:
-        suffix = hashlib.sha256(dep.encode()).hexdigest()[:24]
-    name = f"dgd-{suffix}"
-    if len(name) > _DGD_NAME_MAX_LEN:
-        name = name[:_DGD_NAME_MAX_LEN]
-    return name
 
 
 class NvidiaDgdClient:
@@ -131,86 +117,118 @@ class NvidiaDgdClient:
             port=preferred,
         )
 
-    def _hf_model(self, payload: dict) -> str:
-        hf_model = (payload.get("hf_model") or payload.get("hf_model_id") or "").strip()
-        if not hf_model:
-            su = (payload.get("storage_uri") or "").strip()
-            if su and "://" not in su and "/" in su:
-                hf_model = su
-            else:
-                hf_model = self._settings.nvidia_hf_model_default
-        return hf_model
-
     def _build_spec(self, payload: dict) -> dict[str, Any]:
-        hf_model = self._hf_model(payload)
-        replicas = max(1, int(payload.get("replicas_min") or 1))
-        gpu_n = max(1, int(payload.get("gpu_count_per_replica") or 1))
-        img = self._settings.nvidia_dgd_runtime_image.strip()
-        if not img:
-            img = "nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1"
+        return render_vllm_agg_dgd_spec(payload, self._settings)
 
-        # On Kubernetes, use native discovery (EndpointSlice + DynamoWorkerMetadata). Without this,
-        # vllm-runtime defaults to etcd and fails lease creation against secured platform etcd.
-        k8s_disc_env = [{"name": "DYN_DISCOVERY_BACKEND", "value": "kubernetes"}]
+    @staticmethod
+    def _ready_condition(status: dict[str, Any]) -> dict[str, Any]:
+        for cond in status.get("conditions") or []:
+            if cond.get("type") == "Ready":
+                return cond
+        return {}
 
-        frontend: dict[str, Any] = {
-            "componentType": "frontend",
-            "replicas": replicas,
-            "extraPodSpec": {
-                "mainContainer": {"image": img, "env": k8s_disc_env},
-            },
+    @staticmethod
+    def _summarize_service_status(service_status: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "component_kind": service_status.get("componentKind", ""),
+            "component_name": service_status.get("componentName", ""),
+            "component_names": service_status.get("componentNames") or [],
+            "replicas": int(service_status.get("replicas") or 0),
+            "ready_replicas": int(service_status.get("readyReplicas") or 0),
+            "updated_replicas": int(service_status.get("updatedReplicas") or 0),
         }
-        worker: dict[str, Any] = {
-            "componentType": "worker",
-            "replicas": replicas,
-            "resources": {"limits": {"gpu": str(gpu_n)}},
-            "extraPodSpec": {
-                "tolerations": [
-                    {
-                        "key": "nvidia.com/gpu",
-                        "operator": "Exists",
-                        "effect": "NoSchedule",
-                    }
-                ],
-                "mainContainer": {
-                    "image": img,
-                    "env": k8s_disc_env,
-                    "workingDir": "/workspace/examples/backends/vllm",
-                    "command": ["python3", "-m", "dynamo.vllm"],
-                    "args": ["--model", hf_model],
-                },
-            },
+
+    async def get_deployment_k8s_status(self, deployment_id: str) -> dict[str, Any]:
+        """Return Kubernetes truth for a TaaS-managed DGD without mutating cluster state."""
+        dgd_name = dgd_name_for_deployment(deployment_id)
+        api = await self._ensure_client()
+        try:
+            dgd = await api.get_namespaced_custom_object(
+                group=self._settings.nvidia_dgd_group,
+                version=self._settings.nvidia_dgd_version,
+                namespace=self._namespace,
+                plural=self._settings.nvidia_dgd_plural,
+                name=dgd_name,
+            )
+        except ApiException as e:
+            if getattr(e, "status", None) == 404:
+                return {
+                    "available": True,
+                    "found": False,
+                    "namespace": self._namespace,
+                    "dgd_name": dgd_name,
+                    "error": "DynamoGraphDeployment not found",
+                }
+            raise
+
+        metadata = dgd.get("metadata") or {}
+        status = dgd.get("status") or {}
+        ready_condition = self._ready_condition(status)
+        ready = str(ready_condition.get("status", "")).lower() == "true"
+        services = {
+            name: self._summarize_service_status(service_status or {})
+            for name, service_status in (status.get("services") or {}).items()
         }
-        secret = (self._settings.nvidia_dgd_hf_secret_name or "").strip()
-        if secret:
-            frontend["envFromSecret"] = secret
-            worker["envFromSecret"] = secret
+
+        profile_config_maps: list[str] = []
+        try:
+            core = await self._ensure_core_v1()
+            cms = await core.list_namespaced_config_map(
+                namespace=self._namespace,
+                label_selector=f"taas.io/deployment-id={deployment_id}",
+            )
+            profile_config_maps = sorted(
+                cm.metadata.name
+                for cm in (cms.items or [])
+                if cm.metadata and cm.metadata.name and cm.metadata.name.startswith("planner-profile-data-")
+            )
+        except ApiException:
+            logger.warning("failed to list planner profile ConfigMaps for %s", dgd_name, exc_info=True)
 
         return {
-            "backendFramework": "vllm",
-            "services": {
-                "Frontend": frontend,
-                "VllmDecodeWorker": worker,
-            },
+            "available": True,
+            "found": True,
+            "namespace": self._namespace,
+            "dgd_name": metadata.get("name", dgd_name),
+            "generation": int(metadata.get("generation") or 0),
+            "observed_generation": int(status.get("observedGeneration") or 0),
+            "ready": ready,
+            "state": status.get("state", ""),
+            "ready_reason": ready_condition.get("reason", ""),
+            "ready_message": ready_condition.get("message", ""),
+            "services": services,
+            "profile_config_maps": profile_config_maps,
         }
+
+    async def _ensure_profile_config_map(self, payload: dict) -> None:
+        if not bool(payload.get("disagg_enabled")):
+            return
+        if payload.get("autoscaling_enabled") is False:
+            return
+        core = await self._ensure_core_v1()
+        body = render_profile_config_map(payload, self._namespace)
+        name = body["metadata"]["name"]
+        try:
+            await core.create_namespaced_config_map(namespace=self._namespace, body=body)
+            logger.info("Created planner profile ConfigMap %s", name)
+        except ApiException as e:
+            if getattr(e, "status", None) != 409:
+                raise
+            current = await core.read_namespaced_config_map(name=name, namespace=self._namespace)
+            current.data = body.get("data", {})
+            current.metadata.labels = {
+                **(current.metadata.labels or {}),
+                **body["metadata"].get("labels", {}),
+            }
+            await core.replace_namespaced_config_map(name=name, namespace=self._namespace, body=current)
+            logger.info("Updated planner profile ConfigMap %s", name)
 
     async def create_from_payload(self, payload: dict) -> dict:
         deployment_id = payload["deployment_id"]
         name = dgd_name_for_deployment(deployment_id)
         api = await self._ensure_client()
-        body = {
-            "apiVersion": f"{self._settings.nvidia_dgd_group}/{self._settings.nvidia_dgd_version}",
-            "kind": "DynamoGraphDeployment",
-            "metadata": {
-                "name": name,
-                "namespace": self._namespace,
-                "labels": {
-                    "app.kubernetes.io/managed-by": "taas-dynamo-operator",
-                    "taas.io/deployment-id": deployment_id,
-                },
-            },
-            "spec": self._build_spec(payload),
-        }
+        body = render_vllm_agg_dgd(payload, self._settings, self._namespace)
+        await self._ensure_profile_config_map(payload)
         result = await api.create_namespaced_custom_object(
             group=self._settings.nvidia_dgd_group,
             version=self._settings.nvidia_dgd_version,
@@ -219,13 +237,14 @@ class NvidiaDgdClient:
             body=body,
         )
         logger.info("Created DynamoGraphDeployment %s", name)
-        try:
-            await self._ensure_vllm_worker_discovery_service(deployment_id=deployment_id, dgd_name=name)
-        except Exception:
-            logger.exception(
-                "Failed to ensure worker discovery Service for %s (Frontend may list 0 backends)",
-                name,
-            )
+        if not bool(payload.get("disagg_enabled")):
+            try:
+                await self._ensure_vllm_worker_discovery_service(deployment_id=deployment_id, dgd_name=name)
+            except Exception:
+                logger.exception(
+                    "Failed to ensure worker discovery Service for %s (Frontend may list 0 backends)",
+                    name,
+                )
         return result
 
     async def _wait_dgd_worker_hash(self, dgd_name: str, timeout_s: float = 120.0) -> str:
@@ -344,18 +363,44 @@ class NvidiaDgdClient:
             except ApiException:
                 logger.exception("delete worker discovery Service %s", n)
 
+    async def _delete_profile_config_maps(self, deployment_id: str) -> None:
+        core = await self._ensure_core_v1()
+        try:
+            lst = await core.list_namespaced_config_map(
+                namespace=self._namespace,
+                label_selector=f"taas.io/deployment-id={deployment_id}",
+            )
+        except ApiException:
+            return
+        for cm in lst.items or []:
+            n = cm.metadata.name
+            if not n or not n.startswith("planner-profile-data-"):
+                continue
+            try:
+                await core.delete_namespaced_config_map(name=n, namespace=self._namespace)
+                logger.info("Deleted planner profile ConfigMap %s", n)
+            except ApiException:
+                logger.exception("delete planner profile ConfigMap %s", n)
+
     async def delete_for_deployment_id(self, deployment_id: str) -> None:
         name = dgd_name_for_deployment(deployment_id)
         await self._delete_worker_discovery_services(deployment_id)
+        await self._delete_profile_config_maps(deployment_id)
         api = await self._ensure_client()
-        await api.delete_namespaced_custom_object(
-            group=self._settings.nvidia_dgd_group,
-            version=self._settings.nvidia_dgd_version,
-            namespace=self._namespace,
-            plural=self._settings.nvidia_dgd_plural,
-            name=name,
-        )
-        logger.info("Deleted DynamoGraphDeployment %s", name)
+        try:
+            await api.delete_namespaced_custom_object(
+                group=self._settings.nvidia_dgd_group,
+                version=self._settings.nvidia_dgd_version,
+                namespace=self._namespace,
+                plural=self._settings.nvidia_dgd_plural,
+                name=name,
+            )
+            logger.info("Deleted DynamoGraphDeployment %s", name)
+        except ApiException as e:
+            if getattr(e, "status", None) == 404:
+                logger.info("DynamoGraphDeployment %s already deleted", name)
+                return
+            raise
 
     async def watch_dgd(
         self,

@@ -12,12 +12,19 @@ image:
   tag: "latest"
   pullPolicy: IfNotPresent
 
+# For local-image development with image.pullPolicy=Never. When set, TaaS pods
+# built by scripts/deploy-local-k8s.sh are pinned to the node that has the
+# imported local images.
+localImages:
+  nodeName: ""
+
 # ─── API Gateway ─────────────────────────────────────────────────────────────
 gateway:
   enabled: true
   replicaCount: 2
   envName: production
   dynamoFrontendUrl: ""
+  dynamoOperatorUrl: ""
   litellmProxyUrl: ""
   corsAllowedOrigins: []
   image:
@@ -126,14 +133,22 @@ dynamoOperator:
   nvidiaDgdVersion: v1alpha1
   nvidiaDgdPlural: dynamographdeployments
   nvidiaDgdRuntimeImage: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1
+  nvidiaDgdPlannerImage: ""
+  nvidiaDgdImagePullSecretName: ngc-regcred
   nvidiaDgdHfSecretName: hf-token-secret
+  nvidiaDgdGpuNodeLabelKey: ""
   nvidiaHfModelDefault: Qwen/Qwen3-0.6B
   nvidiaFrontendUrlTemplate: "http://{dgd_name}-frontend.{namespace}.svc.cluster.local:{port}"
   nvidiaResolveFrontendViaK8s: true
+  nvidiaDgdPlannerEnvironment: global-planner
+  globalPlannerNamespace: dynamo-system-gp-ctrl
+  metricPullingPrometheusEndpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
   nvidiaDgdComponentRbac: true
-  # ServiceAccounts that DGD frontend/worker pods run under. NVIDIA's DGD operator places these pods on
-  # `dynamo-platform-dynamo-operator-component` by default; we keep `dgd-components` for backward compatibility
-  # with older charts where users overrode the SA name.
+  # ServiceAccounts that DGD component pods run under. The Planner sidecar needs DGD patch/update
+  # rights when nvidiaDgdPlannerEnvironment=kubernetes; frontend/worker pods need Kubernetes
+  # discovery rights. NVIDIA's DGD operator places these pods on
+  # `dynamo-platform-dynamo-operator-component` by default; we keep `dgd-components` for backward
+  # compatibility with older charts where users overrode the SA name.
   nvidiaDgdComponentServiceAccountNames:
     - dynamo-platform-dynamo-operator-component
     - dgd-components
@@ -245,6 +260,7 @@ prometheus:
 
 # ─── Secrets (externally managed) ───────────────────────────────────────────
 secrets:
+  autoCreate: false
   # Set these via --set or values override, never commit real values
   jwtSigningKey: ""
   dbPassword: ""
