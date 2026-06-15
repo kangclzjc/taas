@@ -79,6 +79,40 @@ function runtimeSummary(status?: DeploymentK8sStatus) {
   );
 }
 
+function formatGpuSummary(dep: Deployment): string {
+  const gpuType = dep.gpu_type || '—';
+  if (dep.disagg_enabled) {
+    const prefillReplicas = dep.prefill_replicas || 1;
+    const decodeReplicas = dep.decode_replicas || 1;
+    const prefillGpu = dep.prefill_gpu_count_per_replica || dep.gpu_count_per_replica || 1;
+    const decodeGpu = dep.decode_gpu_count_per_replica || dep.gpu_count_per_replica || 1;
+    const total = (prefillReplicas * prefillGpu) + (decodeReplicas * decodeGpu);
+    return `${gpuType} P${prefillGpu}×${prefillReplicas} / D${decodeGpu}×${decodeReplicas} (${total} total)`;
+  }
+  if (dep.gpu_count_per_replica > 0) {
+    return `${gpuType} ×${dep.gpu_count_per_replica}`;
+  }
+  return gpuType;
+}
+
+function formatTopologySummary(dep: Deployment): string {
+  if (dep.disagg_enabled) {
+    const prefillReplicas = dep.prefill_replicas || 1;
+    const decodeReplicas = dep.decode_replicas || 1;
+    const prefillTp = dep.prefill_tensor_parallel_size || dep.tensor_parallel_size || 1;
+    const decodeTp = dep.decode_tensor_parallel_size || dep.tensor_parallel_size || 1;
+    const prefillPp = dep.prefill_pipeline_parallel_size || dep.pipeline_parallel_size || 1;
+    const decodePp = dep.decode_pipeline_parallel_size || dep.pipeline_parallel_size || 1;
+    const prefill = `P${prefillReplicas}${prefillTp > 1 ? ` TP${prefillTp}` : ''}${prefillPp > 1 ? ` PP${prefillPp}` : ''}`;
+    const decode = `D${decodeReplicas}${decodeTp > 1 ? ` TP${decodeTp}` : ''}${decodePp > 1 ? ` PP${decodePp}` : ''}`;
+    return `${prefill} / ${decode}`;
+  }
+  const replicas = dep.replicas_current || dep.replicas_min || 1;
+  const tp = dep.tensor_parallel_size || 1;
+  const pp = dep.pipeline_parallel_size || 1;
+  return `×${replicas}${tp > 1 ? ` TP${tp}` : ''}${pp > 1 ? ` PP${pp}` : ''}`;
+}
+
 function modeBadge(mode: string) {
   if (mode === 'dgdr') return <span className="badge badge-warning" title="Auto-profiling, SLA-driven">🔬 DGDR</span>;
   return <span className="badge badge-info" title="Direct deploy, no profiling">⚡ DGD</span>;
@@ -469,21 +503,12 @@ print(resp.choices[0].message.content)`;
                       </div>
                     </td>
                     <td style={{ fontSize: 13 }}>
-                      {dep.gpu_type || '—'}
-                      {dep.gpu_count_per_replica > 0 && ` ×${dep.gpu_count_per_replica}`}
+                      {formatGpuSummary(dep)}
                     </td>
                     <td style={{ fontSize: 13 }}>
-                      {dep.disagg_enabled ? (
-                        <span title="Disaggregated: prefill/decode separation">
-                          P{dep.prefill_replicas || 1}/D{dep.decode_replicas || 1}
-                          {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
-                        </span>
-                      ) : (
-                        <span>
-                          ×{dep.replicas_current || dep.replicas_min || 1}
-                          {dep.tensor_parallel_size > 1 && ` TP${dep.tensor_parallel_size}`}
-                        </span>
-                      )}
+                      <span title={dep.disagg_enabled ? 'Disaggregated: prefill/decode separation' : 'Replica topology'}>
+                        {formatTopologySummary(dep)}
+                      </span>
                       {runtimeSummary(dep.k8s_status)}
                     </td>
                     <td>

@@ -217,6 +217,12 @@ export interface Deployment {
   disagg_enabled: boolean;
   prefill_replicas: number;
   decode_replicas: number;
+  prefill_gpu_count_per_replica: number;
+  decode_gpu_count_per_replica: number;
+  prefill_tensor_parallel_size: number;
+  decode_tensor_parallel_size: number;
+  prefill_pipeline_parallel_size: number;
+  decode_pipeline_parallel_size: number;
   replicas_min: number;
   replicas_max: number;
   replicas_current: number;
@@ -292,6 +298,12 @@ function normalizeDeployment(raw: Record<string, unknown>): Deployment {
     disagg_enabled: Boolean(pick(raw, 'disagg_enabled', 'DisaggEnabled') ?? false),
     prefill_replicas: Number(pick(raw, 'prefill_replicas', 'PrefillReplicas') ?? 0),
     decode_replicas: Number(pick(raw, 'decode_replicas', 'DecodeReplicas') ?? 0),
+    prefill_gpu_count_per_replica: Number(pick(raw, 'prefill_gpu_count_per_replica', 'PrefillGPUCountPerReplica') ?? 0),
+    decode_gpu_count_per_replica: Number(pick(raw, 'decode_gpu_count_per_replica', 'DecodeGPUCountPerReplica') ?? 0),
+    prefill_tensor_parallel_size: Number(pick(raw, 'prefill_tensor_parallel_size', 'PrefillTensorParallelSize') ?? 0),
+    decode_tensor_parallel_size: Number(pick(raw, 'decode_tensor_parallel_size', 'DecodeTensorParallelSize') ?? 0),
+    prefill_pipeline_parallel_size: Number(pick(raw, 'prefill_pipeline_parallel_size', 'PrefillPipelineParallelSize') ?? 0),
+    decode_pipeline_parallel_size: Number(pick(raw, 'decode_pipeline_parallel_size', 'DecodePipelineParallelSize') ?? 0),
     replicas_min: Number(pick(raw, 'replicas_min', 'ReplicasMin') ?? 0),
     replicas_max: Number(pick(raw, 'replicas_max', 'ReplicasMax') ?? 0),
     replicas_current: Number(pick(raw, 'replicas_current', 'ReplicasCurrent') ?? 0),

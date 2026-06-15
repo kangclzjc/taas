@@ -111,10 +111,16 @@ type Deployment struct {
 	TargetTPOTMs float64 `db:"target_tpot_ms"` // Time Per Output Token (ms)
 
 	// Disaggregated serving (P/D separation)
-	DisaggEnabled   bool   `db:"disagg_enabled"`
-	PrefillReplicas int    `db:"prefill_replicas"`
-	DecodeReplicas  int    `db:"decode_replicas"`
-	SearchStrategy  string `db:"search_strategy"` // AIConfigurator: rapid, thorough
+	DisaggEnabled               bool   `db:"disagg_enabled"`
+	PrefillReplicas             int    `db:"prefill_replicas"`
+	DecodeReplicas              int    `db:"decode_replicas"`
+	PrefillGPUCountPerReplica   int    `db:"prefill_gpu_count_per_replica"`
+	DecodeGPUCountPerReplica    int    `db:"decode_gpu_count_per_replica"`
+	PrefillTensorParallelSize   int    `db:"prefill_tensor_parallel_size"`
+	DecodeTensorParallelSize    int    `db:"decode_tensor_parallel_size"`
+	PrefillPipelineParallelSize int    `db:"prefill_pipeline_parallel_size"`
+	DecodePipelineParallelSize  int    `db:"decode_pipeline_parallel_size"`
+	SearchStrategy              string `db:"search_strategy"` // AIConfigurator: rapid, thorough
 
 	// DGD-specific (direct deploy, no profiling)
 	FrontendReplicas int    `db:"frontend_replicas"` // Frontend HTTP replicas
@@ -226,6 +232,30 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 	if pp == 0 {
 		pp = 1
 	}
+	prefillGPU := cfg.PrefillGPUCountPerReplica
+	if prefillGPU == 0 {
+		prefillGPU = cfg.GPUCountPerReplica
+	}
+	decodeGPU := cfg.DecodeGPUCountPerReplica
+	if decodeGPU == 0 {
+		decodeGPU = cfg.GPUCountPerReplica
+	}
+	prefillTP := cfg.PrefillTensorParallelSize
+	if prefillTP == 0 {
+		prefillTP = tp
+	}
+	decodeTP := cfg.DecodeTensorParallelSize
+	if decodeTP == 0 {
+		decodeTP = tp
+	}
+	prefillPP := cfg.PrefillPipelineParallelSize
+	if prefillPP == 0 {
+		prefillPP = pp
+	}
+	decodePP := cfg.DecodePipelineParallelSize
+	if decodePP == 0 {
+		decodePP = pp
+	}
 
 	d := &Deployment{
 		ID:         uuid.New(),
@@ -257,10 +287,16 @@ func (s *Service) Deploy(ctx context.Context, modelID, orgID uuid.UUID, cfg Depl
 		TargetITLMs:  cfg.TargetITLMs,
 		TargetTPOTMs: cfg.TargetTPOTMs,
 		// Disaggregated
-		DisaggEnabled:   cfg.DisaggEnabled,
-		PrefillReplicas: cfg.PrefillReplicas,
-		DecodeReplicas:  cfg.DecodeReplicas,
-		SearchStrategy:  cfg.SearchStrategy,
+		DisaggEnabled:               cfg.DisaggEnabled,
+		PrefillReplicas:             cfg.PrefillReplicas,
+		DecodeReplicas:              cfg.DecodeReplicas,
+		PrefillGPUCountPerReplica:   prefillGPU,
+		DecodeGPUCountPerReplica:    decodeGPU,
+		PrefillTensorParallelSize:   prefillTP,
+		DecodeTensorParallelSize:    decodeTP,
+		PrefillPipelineParallelSize: prefillPP,
+		DecodePipelineParallelSize:  decodePP,
+		SearchStrategy:              cfg.SearchStrategy,
 		// DGD-specific
 		FrontendReplicas: cfg.FrontendReplicas,
 		WorkerCommand:    cfg.WorkerCommand,
@@ -354,15 +390,15 @@ type DeployConfig struct {
 	TargetTPOTMs float64
 
 	// Disaggregated serving
-	DisaggEnabled                  bool
-	PrefillReplicas                int
-	DecodeReplicas                 int
-	PrefillGPUCountPerReplica      int
-	DecodeGPUCountPerReplica       int
-	PrefillTensorParallelSize      int
-	DecodeTensorParallelSize       int
-	PrefillPipelineParallelSize     int
-	DecodePipelineParallelSize      int
+	DisaggEnabled               bool
+	PrefillReplicas             int
+	DecodeReplicas              int
+	PrefillGPUCountPerReplica   int
+	DecodeGPUCountPerReplica    int
+	PrefillTensorParallelSize   int
+	DecodeTensorParallelSize    int
+	PrefillPipelineParallelSize int
+	DecodePipelineParallelSize  int
 	PrefillBackendImage         string
 	DecodeBackendImage          string
 	SearchStrategy              string // AIConfigurator: rapid or thorough
