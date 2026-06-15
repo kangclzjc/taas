@@ -164,6 +164,13 @@ if [[ "${HAS_LITELLM_DB}" != "1" ]]; then
     -c "CREATE DATABASE litellm"
 fi
 
+apply_sql_migration() {
+  local f="$1"
+  echo "    ${f#${ROOT}/}"
+  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
+    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 <"${f}"
+}
+
 HAS_USERS="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
   env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc "SELECT to_regclass('public.users');" 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ "${HAS_USERS}" == "users" ]]; then
@@ -171,44 +178,22 @@ if [[ "${HAS_USERS}" == "users" ]]; then
 else
   echo "==> Applying SQL migrations (fresh DB only — re-run on existing DB would fail on CREATE TABLE)"
   for f in \
-    migrations/001_initial_schema.up.sql \
-    migrations/002_audit_log.up.sql \
-    migrations/003_organizations.up.sql; do
-    echo "    $f"
-    kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
-      env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 <"$f"
+    "${ROOT}/migrations/001_initial_schema.up.sql" \
+    "${ROOT}/migrations/002_audit_log.up.sql" \
+    "${ROOT}/migrations/003_organizations.up.sql"; do
+    apply_sql_migration "${f}"
   done
 fi
 
-HAS_HF_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
-  env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
-  "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='models' AND column_name='hf_model' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
-if [[ "${HAS_HF_COL}" != "1" ]]; then
-  echo "==> Applying incremental migration: migrations/004_models_hf_model.up.sql"
-  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
-    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 \
-    <"${ROOT}/migrations/004_models_hf_model.up.sql"
-fi
-
-HAS_LITELLM_MODEL_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
-  env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
-  "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='deployments' AND column_name='litellm_model_id' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
-if [[ "${HAS_LITELLM_MODEL_COL}" != "1" ]]; then
-  echo "==> Applying incremental migration: migrations/004_litellm_integration.up.sql"
-  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
-    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 \
-    <"${ROOT}/migrations/004_litellm_integration.up.sql"
-fi
-
-HAS_DEPLOY_MODE_COL="$(kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
-  env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc \
-  "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='deployments' AND column_name='deploy_mode' LIMIT 1;" 2>/dev/null | tr -d '[:space:]' || true)"
-if [[ "${HAS_DEPLOY_MODE_COL}" != "1" ]]; then
-  echo "==> Applying incremental migration: migrations/005_deployment_dynamo_config.up.sql"
-  kubectl exec -i -n "${NAMESPACE}" "${PG_POD}" -- \
-    env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -v ON_ERROR_STOP=1 \
-    <"${ROOT}/migrations/005_deployment_dynamo_config.up.sql"
-fi
+echo "==> Applying idempotent incremental SQL migrations"
+shopt -s nullglob
+for f in "${ROOT}"/migrations/[0-9][0-9][0-9]_*.up.sql; do
+  case "$(basename "${f}")" in
+    001_*|002_*|003_*) continue ;;
+  esac
+  apply_sql_migration "${f}"
+done
+shopt -u nullglob
 
 if ! kubectl exec -n "${NAMESPACE}" "${PG_POD}" -- \
   env PGPASSWORD="${PG_PASS}" psql -U taas -d taas -tAc "SELECT to_regclass('public.users');" 2>/dev/null | grep -q users; then
